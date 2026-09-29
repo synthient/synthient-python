@@ -31,3 +31,8 @@ jobs:
         run: |
           uv export --locked --all-extras --no-dev --no-emit-project --output-file "$RUNNER_TEMP/locked.txt"
           uv run --no-sync pip-audit --strict --disable-pip --require-hashes --requirement "$RUNNER_TEMP/locked.txt"
+      - name: Audit the lowest allowed runtime dependencies
+        if: ${{ !cancelled() }}
+        run: |
+          uv export --resolution lowest-direct --all-extras --no-dev --no-emit-project --output-file "$RUNNER_TEMP/lowest.txt"
+          uv run --no-sync pip-audit --strict --disable-pip --require-hashes --requirement "$RUNNER_TEMP/lowest.txt"
