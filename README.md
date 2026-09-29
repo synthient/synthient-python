@@ -1,6 +1,6 @@
 # synthient-python
 
-![Synthient](assets/readme-header.svg)
+![Synthient](https://raw.githubusercontent.com/synthient/synthient-python/main/assets/readme-header.svg)
 
 [![PyPI](https://img.shields.io/pypi/v/synthient)](https://pypi.org/project/synthient/)
 [![test](https://github.com/synthient/synthient-python/actions/workflows/test.yml/badge.svg)](https://github.com/synthient/synthient-python/actions/workflows/test.yml)
@@ -52,8 +52,8 @@ async with synthient.AsyncClient() as client:
 
 ## Documentation
 
-Every class and method is documented in its docstring, including errors, retries, exports, and downloads. Runnable programs are in [examples](examples), for example `uv run examples/lookup_ip.py 8.8.8.8`. Guides and field references are at [docs.synthient.com](https://docs.synthient.com). The `synthient.grpcschema` module fetches the protobuf schema of the Synthient gRPC API; install it with `pip install 'synthient[grpc]'`.
+Every class and method is documented in its docstring, including errors, retries, exports, and downloads. Runnable programs are in [examples](https://github.com/synthient/synthient-python/tree/main/examples), for example `uv run examples/lookup_ip.py 8.8.8.8`. Guides and field references are at [docs.synthient.com](https://docs.synthient.com). The `synthient.grpcschema` module fetches the protobuf schema of the Synthient gRPC API; install it with `pip install 'synthient[grpc]'`.
 
 ## License
 
-[Apache 2.0](LICENSE)
+[Apache 2.0](https://github.com/synthient/synthient-python/blob/main/LICENSE)
