@@ -24,6 +24,10 @@ jobs:
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
-      - name: Export runtime dependencies
-        run: uv export --all-extras --no-dev --no-emit-project --output-file "$RUNNER_TEMP/requirements.txt"
-      - run: uvx pip-audit@2.10.1 --strict --disable-pip --require-hashes --requirement "$RUNNER_TEMP/requirements.txt"
+        with:
+          version-file: uv.lock
+      - run: uv sync --locked --only-group ci
+      - name: Audit the locked runtime dependencies
+        run: |
+          uv export --locked --all-extras --no-dev --no-emit-project --output-file "$RUNNER_TEMP/locked.txt"
+          uv run --no-sync pip-audit --strict --disable-pip --require-hashes --requirement "$RUNNER_TEMP/locked.txt"

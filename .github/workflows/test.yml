@@ -36,6 +36,8 @@ jobs:
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version-file: uv.lock
       - name: Check uv.lock is up to date
         if: matrix.resolution == 'highest'
         run: uv lock --check
@@ -49,9 +51,11 @@ jobs:
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version-file: uv.lock
       - name: Build the sdist and a wheel from it
         run: uv build
-      - run: uvx twine@7.0.0 check --strict dist/*
+      - run: uv run --locked --only-group ci twine check --strict dist/*
       - name: Check the wheel outside the checkout
         working-directory: ${{ runner.temp }}
         run: |

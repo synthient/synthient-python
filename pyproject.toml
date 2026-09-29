@@ -35,6 +35,7 @@ Repository = "https://github.com/synthient/synthient-python"
 Issues = "https://github.com/synthient/synthient-python/issues"
 
 [dependency-groups]
+ci = ["pip-audit>=2.10.1", "twine>=7.0.0", "uv>=0.12.19"]
 dev = [
     "synthient[grpc]",
     "grpcio-health-checking>=1.66",
