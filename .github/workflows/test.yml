@@ -1,0 +1,67 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    name: test (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: python-minimum
+            python-version: "3.11"
+            resolution: lowest-direct
+          - name: python-latest
+            python-version: "3.14"
+            resolution: highest
+    env:
+      UV_PYTHON: ${{ matrix.python-version }}
+      UV_RESOLUTION: ${{ matrix.resolution }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - name: Check uv.lock is up to date
+        if: matrix.resolution == 'highest'
+        run: uv lock --check
+      - run: uv run --all-extras pytest
+
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - name: Build the sdist and a wheel from it
+        run: uv build
+      - run: uvx twine@7.0.0 check --strict dist/*
+      - name: Check the wheel outside the checkout
+        working-directory: ${{ runner.temp }}
+        run: |
+          uv venv wheel
+          export VIRTUAL_ENV="$PWD/wheel" PATH="$PWD/wheel/bin:$PATH"
+          uv pip install "$(ls "$GITHUB_WORKSPACE"/dist/*.whl)"
+          uv pip check
+          python -c "import pathlib, synthient; assert pathlib.Path(synthient.__file__).with_name('py.typed').exists(); print(synthient.__file__, synthient.__version__)"
+          if python -c "import synthient.grpcschema" 2> import-error.txt; then exit 1; fi
+          grep -q "synthient\[grpc\]" import-error.txt
+          uv pip install "$(ls "$GITHUB_WORKSPACE"/dist/*.whl)[grpc]" pyright
+          python -c "import synthient.grpcschema"
+          pyright --verifytypes synthient --ignoreexternal
