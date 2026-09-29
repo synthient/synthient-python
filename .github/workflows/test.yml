@@ -61,13 +61,24 @@ jobs:
       - name: Check the wheel outside the checkout
         working-directory: ${{ runner.temp }}
         run: |
-          uv venv wheel
-          export VIRTUAL_ENV="$PWD/wheel" PATH="$PWD/wheel/bin:$PATH"
-          uv pip install "$(ls "$GITHUB_WORKSPACE"/dist/*.whl)"
+          wheel=$(echo "$GITHUB_WORKSPACE"/dist/*.whl)
+          uv venv venv
+          export VIRTUAL_ENV="$PWD/venv" PATH="$PWD/venv/bin:$PATH"
+          uv pip install "$wheel"
           uv pip check
           python -c "import pathlib, synthient; assert pathlib.Path(synthient.__file__).with_name('py.typed').exists(); print(synthient.__file__, synthient.__version__)"
-          if python -c "import synthient.grpcschema" 2> import-error.txt; then exit 1; fi
-          grep -q "synthient\[grpc\]" import-error.txt
-          uv pip install "$(ls "$GITHUB_WORKSPACE"/dist/*.whl)[grpc]" pyright
+          if python -c "import synthient.grpcschema" 2> import-error.txt; then
+            echo "::error::synthient.grpcschema imported without the grpc extra installed"
+            exit 1
+          fi
+          if ! grep -q "synthient\[grpc\]" import-error.txt; then
+            cat import-error.txt
+            echo "::error::the grpcschema import error does not mention synthient[grpc]"
+            exit 1
+          fi
+          uv pip install "$wheel[grpc]"
+          uv pip check
           python -c "import synthient.grpcschema"
+          uv export --locked --project "$GITHUB_WORKSPACE" --no-emit-project --no-hashes --output-file constraints.txt
+          uv pip install pyright --constraint constraints.txt
           pyright --verifytypes synthient --ignoreexternal
