@@ -1,0 +1,87 @@
+[project]
+name = "synthient"
+version = "1.0.0"
+description = "The official Python client for the Synthient API."
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "Synthient" }]
+requires-python = ">=3.11"
+dependencies = ["anyio>=4.5", "httpx>=0.28.1,<1", "pydantic>=2.11,<3"]
+keywords = ["synthient", "ip intelligence", "proxy detection", "vpn detection", "threat intelligence"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Framework :: AnyIO",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Internet :: WWW/HTTP",
+    "Topic :: Security",
+    "Typing :: Typed",
+]
+
+[project.optional-dependencies]
+grpc = ["grpcio>=1.66", "grpcio-reflection>=1.66", "protobuf>=5.27.2"]
+
+[project.urls]
+Homepage = "https://synthient.com"
+Documentation = "https://docs.synthient.com"
+Repository = "https://github.com/synthient/synthient-python"
+Issues = "https://github.com/synthient/synthient-python/issues"
+
+[dependency-groups]
+dev = [
+    "synthient[grpc]",
+    "grpcio-health-checking>=1.66",
+    "pyright>=1.1.414",
+    "pytest>=9.1",
+    "ruff>=0.16.9",
+    "trio>=0.34",
+    "types-grpcio>=1.84.0.20260928",
+    "types-protobuf>=7.35.1.20260906",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.19,<0.13"]
+build-backend = "uv_build"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    "A", "ASYNC", "B", "BLE", "C4", "DTZ", "E", "F", "FBT", "FURB", "I", "N", "PERF", "PIE",
+    "PL", "PT", "PTH", "RET", "RUF", "S", "SIM", "T20", "TRY", "UP", "W",
+]
+ignore = ["TRY003", "PLR0913"]
+
+[tool.ruff.lint.flake8-builtins]
+ignorelist = ["type"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "PLR2004", "S105", "S106", "FBT"]
+"examples/**" = ["T20", "PLR2004"]
+
+[tool.pyright]
+include = ["src", "tests", "examples"]
+typeCheckingMode = "strict"
+pythonVersion = "3.11"
+# Public functions validate arguments at runtime for callers without a type checker.
+reportUnnecessaryIsInstance = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = ["--strict-markers", "--strict-config"]
+filterwarnings = ["error"]
+xfail_strict = true
+
+[[tool.pyright.executionEnvironments]]
+root = "tests"
+extraPaths = ["."]
+reportPrivateUsage = false
