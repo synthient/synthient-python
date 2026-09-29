@@ -26,5 +26,7 @@ jobs:
           version-file: uv.lock
       - name: Check formatting
         run: uv run --locked ruff format --check
-      - run: uv run --locked ruff check
-      - run: uv run --locked pyright
+      - if: ${{ !cancelled() }}
+        run: uv run --locked ruff check
+      - if: ${{ !cancelled() }}
+        run: uv run --locked pyright
