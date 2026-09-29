@@ -34,8 +34,6 @@ jobs:
           - name: python-latest
             python-version: "3.14"
             uv-args: --upgrade
-    env:
-      UV_PYTHON: ${{ matrix.python-version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -43,6 +41,8 @@ jobs:
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           version-file: uv.lock
+          python-version: ${{ matrix.python-version }}
+          cache-suffix: test-${{ matrix.name }}
       - run: uv run ${{ matrix.uv-args }} --all-extras pytest
 
   package:
@@ -55,6 +55,7 @@ jobs:
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           version-file: uv.lock
+          cache-suffix: package
       - name: Build the sdist and a wheel from it
         run: uv build
       - run: uv run --locked --only-group ci twine check --strict dist/*

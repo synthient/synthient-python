@@ -26,6 +26,7 @@ jobs:
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           version-file: uv.lock
+          cache-suffix: vuln
       - run: uv sync --locked --only-group ci
       - name: Audit the locked runtime dependencies
         run: |
