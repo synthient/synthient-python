@@ -24,6 +24,7 @@ DEFAULT_MAX_RETRIES = 2
 MAX_RESPONSE_SIZE = 16 << 20
 MAX_ERROR_SIZE = 64 << 10
 MAX_REDIRECTS = 10
+MAX_BATCH_SIZE = 1000
 
 # Matches Go's url.PathEscape, so "/" and "?" are escaped and IPv6 colons are kept.
 _PATH_SAFE = "$&+,:;=@"
@@ -216,6 +217,8 @@ def lookup_ips_request(ips: Iterable[str | IPv4Address | IPv6Address]) -> Reques
             raise ValueError(f"invalid IP address at index {index}") from exc
     if not addresses:
         return None
+    if len(addresses) > MAX_BATCH_SIZE:
+        raise ValueError(f"a batch holds at most {MAX_BATCH_SIZE} addresses, got {len(addresses)}")
     return Request(
         method="POST",
         path="/lookup/ips",

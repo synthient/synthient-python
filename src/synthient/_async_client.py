@@ -251,22 +251,28 @@ class AsyncClient:
         await self._transport.request(health_request(), HealthResponse)
 
     async def lookup_ip(self, ip: str | IPv4Address | IPv6Address) -> IPInfo:
-        """Return intelligence for an IPv4 or IPv6 address. Each lookup costs one credit.
+        """Return intelligence for an IPv4 or IPv6 address.
+
+        Each lookup costs one credit. Failed lookups are not billed.
 
         Raises:
             ValueError: If ``ip`` is not a valid address. No request is sent.
+            APIError: With status 422 if ``ip`` is a private or reserved address.
         """
         return await self._transport.request(lookup_ip_request(ip), IPInfo)
 
     async def lookup_ips(self, ips: Iterable[str | IPv4Address | IPv6Address]) -> list[IPInfo]:
         """Look up as many as 1000 addresses in one request.
 
-        The API bills ceil(n * 0.9) credits for n unique addresses. Duplicates are
-        collapsed into one result, so match results by IP rather than by position. An
-        empty list returns [] without a request.
+        The API bills ceil(n * 0.9) credits for n distinct usable addresses. Private and
+        reserved addresses are skipped without a result, and duplicates collapse into one,
+        so match results by IP rather than by position. Results follow the order in which
+        each address first appears. An empty list returns [] without a request.
 
         Raises:
-            ValueError: If an address is invalid. No request is sent.
+            ValueError: If an address is invalid or there are more than 1000. No request
+                is sent.
+            APIError: With status 422 if every address is private or reserved.
         """
         request = lookup_ips_request(ips)
         if request is None:

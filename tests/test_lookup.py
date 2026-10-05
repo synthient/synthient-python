@@ -143,6 +143,18 @@ def test_lookup_ips_invalid(make_client: MakeClient) -> None:
     assert requests == []
 
 
+def test_lookup_ips_batch_limit(make_client: MakeClient) -> None:
+    requests, handler = recorder({"results": []})
+    client = make_client(handler)
+    addresses = [f"203.0.{index // 256}.{index % 256}" for index in range(1001)]
+
+    client.lookup_ips(addresses[:1000])
+    assert len(requests) == 1
+    with pytest.raises(ValueError, match="at most 1000 addresses, got 1001"):
+        client.lookup_ips(addresses)
+    assert len(requests) == 1
+
+
 def test_lookup_domain(make_client: MakeClient) -> None:
     requests, handler = recorder(DOMAIN_INFO)
     info = make_client(handler).lookup_domain("example.com", limit=5)
