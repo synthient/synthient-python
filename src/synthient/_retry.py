@@ -39,10 +39,10 @@ def parse_retry_after(value: str | None) -> float | None:
         return None
     value = value.strip()
     if re.fullmatch(r"-?[0-9]+", value):
-        return min(max(float(int(value)), 0.0), _MAX_RETRY_AFTER_HEADER)
+        return min(max(float(value), 0.0), _MAX_RETRY_AFTER_HEADER)
     try:
         when = parsedate_to_datetime(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
     if when.tzinfo is None:
         when = when.replace(tzinfo=UTC)
