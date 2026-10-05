@@ -11,6 +11,10 @@ import pytest
 from google.protobuf.descriptor_pb2 import FileDescriptorProto
 from grpc_health.v1 import health, health_pb2, health_pb2_grpc
 from grpc_reflection.v1alpha import reflection
+from grpc_reflection.v1alpha.reflection_pb2 import (
+    ServerReflectionRequest,
+    ServerReflectionResponse,
+)
 
 from synthient import grpcschema
 from synthient.grpcschema import SchemaError, explain, fetch, normalize_endpoint
@@ -114,6 +118,41 @@ def test_normalize_endpoint(raw: str, endpoint: str, host: str) -> None:
 def test_normalize_endpoint_empty() -> None:
     with pytest.raises(ValueError, match="empty gRPC endpoint"):
         normalize_endpoint("grpc://")
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "ftp://grpc.synthient.com",
+        "https://user:password@grpc.synthient.com",
+        "https://grpc.synthient.com/service",
+        "https://grpc.synthient.com?key=value",
+        "https://grpc.synthient.com#fragment",
+        "localhost:notaport",
+        "localhost:",
+        "localhost:0",
+        "localhost:65536",
+        "[::1",
+        "localhost/path",
+        "invalid host",
+    ],
+)
+def test_normalize_endpoint_invalid(endpoint: str) -> None:
+    with pytest.raises(ValueError, match="invalid gRPC endpoint"):
+        normalize_endpoint(endpoint)
+
+
+def test_reflection_unexpected_eof() -> None:
+    requests: queue.SimpleQueue[ServerReflectionRequest | None] = queue.SimpleQueue()
+    responses: Iterator[ServerReflectionResponse] = iter(())
+    reflector = grpcschema._Reflector(requests, responses, "localhost")
+    with pytest.raises(SchemaError, match="stream ended"):
+        reflector.list_services(include_reflection=False)
+
+
+def test_reflection_invalid_descriptor() -> None:
+    with pytest.raises(SchemaError, match="invalid file descriptor"):
+        grpcschema._add_files({}, [b"not a protobuf message"])
 
 
 @pytest.mark.parametrize(

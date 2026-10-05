@@ -8,11 +8,13 @@ from __future__ import annotations
 import queue
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
+from ipaddress import IPv6Address
 from urllib.parse import urlsplit
 
 try:
     import grpc
     from google.protobuf.descriptor_pb2 import FileDescriptorProto, FileDescriptorSet
+    from google.protobuf.message import DecodeError
     from grpc_reflection.v1alpha.reflection_pb2 import (
         ServerReflectionRequest,
         ServerReflectionResponse,
@@ -164,21 +166,34 @@ def normalize_endpoint(raw: str) -> tuple[str, str]:
     URLs. An empty ``raw`` uses DEFAULT_ENDPOINT.
     """
     raw = raw.strip() or DEFAULT_ENDPOINT
-    if "://" in raw:
-        raw = urlsplit(raw).netloc.rpartition("@")[2]
-    raw = raw.removesuffix("/")
-    if not raw:
+    try:
+        if "://" in raw:
+            url = urlsplit(raw)
+        else:
+            authority = raw.removesuffix("/")
+            if authority.count(":") > 1 and not authority.startswith("["):
+                authority = f"[{IPv6Address(authority)}]"
+            url = urlsplit(f"//{authority}")
+        host = url.hostname
+        port = url.port
+    except ValueError:
+        raise ValueError("invalid gRPC endpoint") from None
+    if not host:
         raise ValueError("empty gRPC endpoint")
-
-    if raw.startswith("["):
-        host, _, port = raw[1:].partition("]")
-        if port.startswith(":"):
-            return raw, host
-    elif raw.count(":") == 1:
-        return raw, raw.partition(":")[0]
-    else:
-        host = raw
-    return (f"[{host}]:443" if ":" in host else f"{host}:443"), host
+    if (
+        url.scheme not in {"", "grpc", "https"}
+        or url.username is not None
+        or url.password is not None
+        or url.path not in {"", "/"}
+        or url.query
+        or url.fragment
+        or any(character.isspace() for character in host)
+        or port == 0
+        or url.netloc.endswith(":")
+    ):
+        raise ValueError("invalid gRPC endpoint")
+    port = 443 if port is None else port
+    return (f"[{host}]:{port}" if ":" in host else f"{host}:{port}"), host
 
 
 def explain(error: BaseException) -> str:
@@ -201,7 +216,10 @@ class _Reflector:
     def do(self, request: ServerReflectionRequest) -> ServerReflectionResponse:
         request.host = self._host
         self._requests.put(request)
-        response = next(self._responses)
+        try:
+            response = next(self._responses)
+        except StopIteration:
+            raise SchemaError("reflection stream ended before returning a response") from None
         if response.HasField("error_response"):
             error = response.error_response
             code = next((c for c in grpc.StatusCode if c.value[0] == error.error_code), None)
@@ -228,7 +246,10 @@ class _Reflector:
 
 def _add_files(files: dict[str, FileDescriptorProto], raw: list[bytes]) -> None:
     for data in raw:
-        file = FileDescriptorProto.FromString(data)
+        try:
+            file = FileDescriptorProto.FromString(data)
+        except DecodeError as exc:
+            raise SchemaError("reflection returned an invalid file descriptor") from exc
         if not file.name:
             raise SchemaError("reflection returned a file descriptor without a name")
         files.setdefault(file.name, file)
