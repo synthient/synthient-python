@@ -183,7 +183,8 @@ class Client:
     Requests that cost no credits are retried on 429, 500, 502, 503, and 504 responses and
     on transient connection failures. Billed lookups are retried only on 429, which the API
     returns before doing any work. Retries back off exponentially with jitter and honor
-    Retry-After up to one minute.
+    Retry-After up to one minute. A 429 without Retry-After is not retried, because it
+    means the key's monthly request budget is spent or too many of its streams are open.
 
     Args:
         api_key: The API key. Defaults to the SYNTHIENT_API_KEY environment variable.

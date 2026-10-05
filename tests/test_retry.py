@@ -43,6 +43,14 @@ def sequence(
     return requests, handler
 
 
+def failure(status: int) -> httpx.Response:
+    # The rate limiter's 429 always carries Retry-After.
+    response = problem(status)
+    if status == 429:
+        response.headers["retry-after"] = "0"
+    return response
+
+
 @pytest.mark.parametrize(
     ("kind", "statuses", "final"),
     [
@@ -65,7 +73,7 @@ def test_retry_policy(
 ) -> None:
     call, body = CALLS[kind]
     requests, handler = sequence(
-        *(json_response(200, body) if status == 200 else problem(status) for status in statuses)
+        *(json_response(200, body) if status == 200 else failure(status) for status in statuses)
     )
     client = make_client(handler)
     if final == 200:
@@ -85,6 +93,20 @@ def test_retry_after_is_honored(make_client: MakeClient, sleeps: list[float]) ->
     make_client(handler).lookup_ip("8.8.8.8")
     assert len(requests) == 2
     assert sleeps[0] >= 3
+
+
+@pytest.mark.parametrize("kind", ["free", "billed"])
+def test_429_without_retry_after_stops(
+    make_client: MakeClient, sleeps: list[float], kind: str
+) -> None:
+    call, _ = CALLS[kind]
+    requests, handler = sequence(problem(429))
+    with pytest.raises(APIError) as caught:
+        call(make_client(handler))
+    assert caught.value.status_code == 429
+    assert caught.value.retry_after is None
+    assert len(requests) == 1
+    assert sleeps == []
 
 
 def test_long_retry_after_stops(make_client: MakeClient, sleeps: list[float]) -> None:

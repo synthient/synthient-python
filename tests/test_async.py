@@ -156,7 +156,7 @@ async def test_stream_rejected(sleeps: list[float]) -> None:
             async with client.torrents.stream():
                 pass
     assert caught.value.status_code == 429
-    assert len(sleeps) == 2
+    assert sleeps == []
 
 
 async def test_iter_exports() -> None:
