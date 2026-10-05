@@ -216,7 +216,7 @@ class Client:
     helios_https: Feed[HeliosHTTPSEvent]
     """The Helios honeypot TLS ClientHello capture feed."""
     helios_dns: Feed[HeliosDNSEvent]
-    """The Helios honeypot DNS query feed."""
+    """The Helios honeypot DNS tunnel destination feed."""
     helios_adb: Feed[HeliosADBEvent]
     """The Helios honeypot Android Debug Bridge command feed."""
 
@@ -295,7 +295,10 @@ class Client:
         return self._transport.request(request, IPBatchResponse).results
 
     def lookup_domain(self, domain: str, *, limit: int | None = None) -> DomainInfo:
-        """Return the honeypot traffic observed for a domain. Each lookup costs one credit.
+        """Return the honeypot traffic observed for a domain.
+
+        Each lookup costs one credit, and the API allows 20 per minute per team. A domain
+        that has never been observed returns ``status`` "inactive" with zeroed stats.
 
         Args:
             domain: The domain. Internationalized names must be sent in Punycode.
@@ -308,9 +311,10 @@ class Feed(Generic[EventT]):
     """A Synthient data feed: a real-time event stream and hourly parquet exports that
     roll up into daily exports. Access feeds through a client, such as ``client.proxies``.
 
-    Export IDs are "latest" for the newest hourly export, a UTC day as "YYYY-MM-DD" or a
-    ``date``, or a UTC hour as "YYYY-MM-DD/HH" or a timezone-aware ``datetime``.
-    ``Export.id`` values can be passed as they are.
+    Export IDs are a UTC day as "YYYY-MM-DD" or a ``date``, a UTC hour as "YYYY-MM-DD/H"
+    or a timezone-aware ``datetime``, or "latest" for the freshest export: the newest
+    hourly during the day, and the daily rollup once the day's hourly exports are rolled
+    up. ``Export.id`` values can be passed as they are.
     """
 
     def __init__(self, transport: Transport, path: str, event: type[EventT]) -> None:
@@ -363,6 +367,8 @@ class Feed(Generic[EventT]):
         self, *, limit: int | None = None, cursor: str | None = None
     ) -> Iterator[Export]:
         """Iterate over the feed's exports, newest first, fetching pages lazily.
+
+        The newest hourly export can appear twice, under "latest" and under its own ID.
 
         Raises:
             SynthientError: If the API repeats a cursor, after that page's exports.

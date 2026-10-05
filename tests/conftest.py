@@ -53,7 +53,7 @@ IP_INFO: dict[str, Any] = {
         "providers": [
             {"provider": "BRIGHTDATA", "type": "RESIDENTIAL_PROXY", "last_seen": 1778187600}
         ],
-        "devices": [{"os": "ANDROID", "version": "14", "last_seen": 1778187600}],
+        "devices": [{"os": "Android", "version": "14", "last_seen": 1778187600}],
     },
 }
 
@@ -67,6 +67,29 @@ EXPORT: dict[str, Any] = {
     "checksum": "ab12",
     "created_at": 1778187600,
     "download_path": "/api/v4/feeds/proxies/export/2026-05-07/21",
+}
+
+HELIOS_HTTPS: dict[str, Any] = {
+    "timestamp": 1778200137487,
+    "tunnel_id": 42,
+    "domain": "example.com",
+    "port": 443,
+    "protocol": "https",
+    "meta": {
+        "proxy_ip": "203.0.113.10",
+        "server": "hp-eu-1",
+        "pool_id": "prod",
+        "provider": "luminati",
+    },
+    "details": {
+        "handshake_version": "TLS 1.2",
+        "sni": "example.com",
+        "cipher_suites": [{"code": 4865, "name": "TLS_AES_128_GCM_SHA256"}],
+        "extensions": [{"code": 0, "name": "server_name", "length": 16}],
+        "alpn": ["h2", "http/1.1"],
+        "has_grease": True,
+    },
+    "raw": None,
 }
 
 

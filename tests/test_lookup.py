@@ -20,18 +20,18 @@ DOMAIN_INFO: dict[str, Any] = {
     "top_subdomains": [{"subdomain": "www", "count": 20}],
     "top_ports": [{"port": 443, "count": 25}],
     "geo_distribution": [{"country_code": "US", "unique_ips": 5, "events": 10}],
-    "hour_dow_heatmap": [[0, 1], [2, 3]],
+    "hour_dow_heatmap": [[day + hour for hour in range(24)] for day in range(7)],
     "activity_stats": {
         "peak_hour": 14,
         "quiet_hour": 3,
         "median_per_hour": 1,
         "p95_per_hour": 4,
-        "cadence": "steady",
+        "cadence": "Activity is evenly distributed across the day.",
     },
     "recent_events": [
         {
             "timestamp": 1778187600,
-            "source_ip_masked": "203.0.113.x",
+            "source_ip_masked": "203.0.113.7",
             "target_subdomain": "www",
             "port": 443,
             "country_code": "US",
@@ -68,7 +68,7 @@ def test_lookup_ip(make_client: MakeClient) -> None:
     provider = info.intelligence.providers[0]
     assert provider.name == "BRIGHTDATA"
     assert provider.last_seen == datetime(2026, 5, 7, 21, tzinfo=UTC)
-    assert info.intelligence.devices[0].os == "ANDROID"
+    assert info.intelligence.devices[0].os == "Android"
 
 
 @pytest.mark.parametrize(
@@ -152,7 +152,7 @@ def test_lookup_domain(make_client: MakeClient) -> None:
     assert info.time_series[0].date == datetime(2026, 5, 7, tzinfo=UTC)
     assert info.top_asn is not None
     assert info.top_asn.asn == 15169
-    assert info.hour_dow_heatmap == [[0, 1], [2, 3]]
+    assert info.hour_dow_heatmap == DOMAIN_INFO["hour_dow_heatmap"]
     assert info.recent_events[0].timestamp == datetime(2026, 5, 7, 21, tzinfo=UTC)
 
 

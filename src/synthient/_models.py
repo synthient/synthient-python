@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime, timedelta
 from ipaddress import IPv4Address, IPv6Address, ip_address
-from typing import Annotated, Any, ClassVar
+from typing import Annotated, ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field, PlainSerializer, PlainValidator
 
-# Synthient documents millisecond timestamps for some Helios feeds. As seconds,
+# The anonymizer and Helios HTTP, HTTPS, and DNS streams send milliseconds. As seconds,
 # values this large would be tens of thousands of years away.
 _MILLISECOND_THRESHOLD = 1_000_000_000_000
 
@@ -119,7 +119,10 @@ class Device(_Model):
     """A device type seen behind an address."""
 
     os: str
-    """The operating system, such as "ANDROID" or "WINDOWS"."""
+    """The operating system, such as "Android", "iOS", or "Windows".
+
+    New values may be added.
+    """
     version: str
     """The operating system version."""
     last_seen: UnixTime
@@ -244,15 +247,17 @@ class ActivityStats(_Model):
     """The hourly activity pattern of a domain."""
 
     cadence: str
-    """How regularly events arrive."""
+    """A sentence describing how events are spread over time, such as
+    "Activity is burst-driven with significant peaks."
+    """
     median_per_hour: int
     """The median number of events per hour."""
     p95_per_hour: int
     """The 95th percentile of events per hour."""
     peak_hour: int
-    """The busiest UTC hour of the day."""
+    """The busiest UTC hour of the day over the last 30 days."""
     quiet_hour: int
-    """The quietest UTC hour of the day."""
+    """The quietest UTC hour of the day over the last 30 days."""
 
 
 class DomainEvent(_Model):
@@ -261,7 +266,7 @@ class DomainEvent(_Model):
     timestamp: UnixTime
     """When the event happened."""
     source_ip_masked: str
-    """The source address. The API may mask part of it."""
+    """The proxy exit address that carried the event. Despite the name, it is not masked."""
     target_subdomain: str
     """The subdomain that was targeted."""
     country_code: str
@@ -276,7 +281,10 @@ class DomainInfo(_Model):
     domain: str
     """The domain that was looked up."""
     status: str
-    """Summarizes recent activity, such as "active"."""
+    """"active" when the domain had events in the last 24 hours, otherwise "inactive".
+
+    A domain that has never been observed is "inactive" with zeroed stats.
+    """
     stats: DomainStats
     """Aggregate event counts."""
     unique_ips: UniqueIPs
@@ -292,7 +300,10 @@ class DomainInfo(_Model):
     geo_distribution: list[CountryCount]
     """Event counts by source country."""
     hour_dow_heatmap: list[list[int]]
-    """Event counts by hour of day and day of week."""
+    """Event counts over the last 30 days as 7 rows by 24 columns, all in UTC.
+
+    Rows are days of the week from Monday (0) to Sunday (6), and columns are hours of the day.
+    """
     activity_stats: ActivityStats
     """The hourly activity pattern."""
     recent_events: list[DomainEvent]
@@ -356,7 +367,11 @@ class Export(_Model):
     """A parquet export of a feed."""
 
     id: str
-    """Identifies the export as "YYYY-MM-DD" or "YYYY-MM-DD/HH". Pass it to ``download``."""
+    """Identifies the export as "YYYY-MM-DD", "YYYY-MM-DD/H", or "latest".
+
+    Pass it to ``download``. The first page of a listing can include "latest", an alias for
+    the newest hourly export that is also listed under its own ID.
+    """
     kind: str
     """Either "hourly" or "daily"."""
     date: Annotated[date, Field(strict=False)]
@@ -558,71 +573,161 @@ class HTTPRequestDetails(_Model):
 class HeliosHTTPEvent(_Model):
     """An HTTP request captured by a Helios honeypot."""
 
-    timestamp: UnixTime | None = None
+    timestamp: UnixTime
     """When the request was captured."""
-    tunnel_id: int | None = None
+    tunnel_id: int
     """Identifies the proxy tunnel the request arrived through."""
-    domain: str | None = None
-    """The requested domain."""
-    port: int | None = None
+    domain: str
+    """The destination host the tunnel was opened to."""
+    port: int
     """The destination port."""
-    protocol: str | None = None
+    protocol: str
     """Always "http"."""
-    meta: HeliosMeta | None = None
+    meta: HeliosMeta
     """The capturing sensor."""
     details: HTTPRequestDetails | None = None
     """The parsed request."""
     raw: str | None = None
-    """The raw request."""
+    """The base64-encoded raw request."""
+
+
+class TLSCodeName(_Model):
+    """A TLS registry code point and its name."""
+
+    code: int | None = None
+    """The code point."""
+    name: str | None = None
+    """The registered name. GREASE values read as "GREASE(0x....)"."""
+
+
+class TLSExtension(_Model):
+    """A TLS extension in a ClientHello."""
+
+    code: int | None = None
+    """The extension type code point."""
+    name: str | None = None
+    """The extension name."""
+    length: int | None = None
+    """The length of the extension body in bytes."""
+
+
+class TLSClientHello(_Model):
+    """A TLS ClientHello as parsed by a Helios sensor.
+
+    Fields the sensor could not parse are None, and new fields may be added.
+    """
+
+    record_version: str | None = None
+    """The record layer version."""
+    handshake_version: str | None = None
+    """The handshake version, such as "TLS 1.2"."""
+    client_random: str | None = None
+    """The hex-encoded 32-byte client random."""
+    session_id: str | None = None
+    """The hex-encoded session ID."""
+    session_id_length: int | None = None
+    """The session ID length in bytes."""
+    sni: str | None = None
+    """The server_name extension value."""
+    alpn: list[str] | None = None
+    """The offered application protocols, such as "h2"."""
+    cipher_suites: list[TLSCodeName] | None = None
+    """The offered cipher suites."""
+    compression_methods: list[int] | None = None
+    """The offered compression methods."""
+    extensions: list[TLSExtension] | None = None
+    """The extensions in wire order."""
+    supported_versions: list[str] | None = None
+    """The supported_versions extension values."""
+    supported_groups: list[TLSCodeName] | None = None
+    """The supported key exchange groups."""
+    signature_algorithms: list[TLSCodeName] | None = None
+    """The supported signature algorithms."""
+    ec_point_formats: list[str] | None = None
+    """The supported elliptic curve point formats."""
+    key_share_groups: list[str] | None = None
+    """The groups the client sent key shares for."""
+    psk_key_exchange_modes: list[str] | None = None
+    """The supported pre-shared key exchange modes."""
+    compress_certificate: list[str] | None = None
+    """The supported certificate compression algorithms."""
+    has_grease: bool | None = None
+    """Whether the ClientHello contains GREASE values."""
+    application_settings: bool | None = None
+    """Whether the ClientHello includes the application_settings extension."""
+    delegated_credentials: bool | None = None
+    """Whether the ClientHello includes the delegated_credentials extension."""
+    encrypt_then_mac: bool | None = None
+    """Whether the ClientHello includes the encrypt_then_mac extension."""
+    extended_master_secret: bool | None = None
+    """Whether the ClientHello includes the extended_master_secret extension."""
+    post_handshake_auth: bool | None = None
+    """Whether the ClientHello includes the post_handshake_auth extension."""
+    renegotiation_info: bool | None = None
+    """Whether the ClientHello includes the renegotiation_info extension."""
+    signed_certificate_timestamps: bool | None = None
+    """Whether the ClientHello includes the signed_certificate_timestamp extension."""
+    status_request: bool | None = None
+    """Whether the ClientHello includes the status_request extension."""
 
 
 class HeliosHTTPSEvent(_Model):
     """A TLS ClientHello captured by a Helios honeypot."""
 
-    timestamp: UnixTime | None = None
+    timestamp: UnixTime
     """When the handshake was captured."""
-    tunnel_id: int | None = None
+    tunnel_id: int
     """Identifies the proxy tunnel the handshake arrived through."""
-    domain: str | None = None
-    """The requested domain."""
-    port: int | None = None
+    domain: str
+    """The destination host the tunnel was opened to."""
+    port: int
     """The destination port."""
-    protocol: str | None = None
+    protocol: str
     """Always "https"."""
-    meta: HeliosMeta | None = None
+    meta: HeliosMeta
     """The capturing sensor."""
-    details: dict[str, Any] | str | None = None
-    """The parsed ClientHello.
-
-    The API has sent it both as an object and as a JSON-encoded string, so it is kept as sent.
-    """
+    details: TLSClientHello | None = None
+    """The parsed ClientHello, or None when the sensor could not parse the handshake."""
     raw: str | None = None
-    """The base64-encoded ClientHello record, when captured."""
+    """Always None. The HTTPS sensors do not capture handshake bytes."""
 
 
 class HeliosDNSEvent(_Model):
-    """A DNS query captured by a Helios honeypot."""
+    """A tunnel destination captured by the Helios DNS honeypot.
 
-    timestamp: UnixTime | None = None
-    """When the query was captured."""
-    tunnel_id: int | None = None
-    """Identifies the proxy tunnel the query arrived through."""
-    domain: str | None = None
-    """The queried domain."""
-    port: int | None = None
-    """The destination port: 53 for DNS, 853 for DoT, or 5353 for mDNS."""
-    meta: HeliosMeta | None = None
+    ``domain`` is where the tunnel was opened to, not a DNS query name. Names resolved
+    inside a tunneled DNS session are not visible.
+    """
+
+    timestamp: UnixTime
+    """When the tunnel was captured."""
+    tunnel_id: int
+    """Identifies the proxy tunnel."""
+    domain: str
+    """The destination host, or an address literal, the tunnel was opened to."""
+    port: int
+    """The destination port."""
+    protocol: str
+    """Always "dns"."""
+    meta: HeliosMeta
     """The capturing sensor."""
 
 
 class HeliosADBEvent(_Model):
-    """An Android Debug Bridge shell command captured by a Helios honeypot."""
+    """An Android Debug Bridge shell command captured by a Helios honeypot.
 
-    session: str | None = None
-    """Identifies the ADB session."""
-    sequential_id: int | None = None
-    """Orders the commands within a session."""
-    command: str | None = None
-    """The shell command."""
-    hash: str | None = None
-    """The hash of the command."""
+    Events carry no timestamp because the sensors send none.
+    """
+
+    session: str
+    """Identifies the ADB session as 32 hex characters."""
+    sequential_id: int
+    """The 1-based position of the command within its session."""
+    command: str
+    """The shell command as plain text."""
+    hash: str
+    """The hex-encoded SHA-256 the sensor assigns to the session's payload.
+
+    It is not a hash of ``command``: every command in a session shares it, and sessions
+    that replay the same script share it too.
+    """

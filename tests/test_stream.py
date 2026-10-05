@@ -8,7 +8,7 @@ import pytest
 
 from synthient import APIConnectionError, APIError, Client, SynthientError
 from synthient._ndjson import LineBuffer
-from tests.conftest import ChunkStream, MakeClient, json_response, problem
+from tests.conftest import HELIOS_HTTPS, ChunkStream, MakeClient, json_response, problem
 
 PROXY = {
     "ip": "203.0.113.7",
@@ -62,22 +62,15 @@ def test_stream_final_line_without_newline(make_client: MakeClient) -> None:
 
 
 def test_stream_helios_https(make_client: MakeClient) -> None:
-    lines = [
-        {
-            "timestamp": 1778200137487,
-            "protocol": "https",
-            "details": {"sni": "example.com"},
-            "raw": None,
-        },
-        {"timestamp": 1778200137487, "details": '{"sni": "example.com"}'},
-    ]
+    lines = [HELIOS_HTTPS, {**HELIOS_HTTPS, "details": None}]
     body = ChunkStream([b"".join(json.dumps(line).encode() + b"\n" for line in lines)])
     client, _ = stream_client(make_client, body)
     with client.helios_https.stream() as events:
         first, second = events
     assert first.timestamp == datetime(2026, 5, 8, 0, 28, 57, 487000, tzinfo=UTC)
-    assert first.details == {"sni": "example.com"}
-    assert second.details == '{"sni": "example.com"}'
+    assert first.details is not None
+    assert first.details.sni == "example.com"
+    assert second.details is None
 
 
 def test_stream_break_closes_response(make_client: MakeClient) -> None:

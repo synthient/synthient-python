@@ -63,6 +63,9 @@ MODELS: dict[str, type[BaseModel]] = {
     "HoneypotHTTPSStreamEntry": synthient.HeliosHTTPSEvent,
     "HoneypotDNSStreamEntry": synthient.HeliosDNSEvent,
     "HoneypotADBStreamEntry": synthient.HeliosADBEvent,
+    "TLSClientHello": synthient.TLSClientHello,
+    "TLSCodeName": synthient.TLSCodeName,
+    "TLSExtension": synthient.TLSExtension,
 }
 
 # Schemas the SDK deliberately does not model, with the reason.
@@ -70,14 +73,6 @@ UNMODELED = {
     "IpBatchRequest": "lookup_ips encodes the request body",
     "ProblemDetails": "parsed leniently into APIError",
     "ValidationProblemDetails": "parsed leniently into APIError",
-    "JA3StreamEntry": "not referenced by any operation",
-    "JA4StreamEntry": "not referenced by any operation",
-}
-
-# Fields the live API sends that the spec omits (openapi-issues.md #19).
-UNSPECIFIED_FIELDS: dict[type[BaseModel], set[str]] = {
-    synthient.HeliosHTTPEvent: {"protocol"},
-    synthient.HeliosHTTPSEvent: {"protocol"},
 }
 
 
@@ -99,6 +94,8 @@ def compatible(schema: dict[str, Any], annotation: Any) -> bool:  # noqa: PLR091
         return compatible(schema, base)
     if origin in {Union, types.UnionType}:
         return any(compatible(schema, arg) for arg in get_args(annotation) if arg is not type(None))
+    if "allOf" in schema:
+        return all(compatible(part, annotation) for part in schema["allOf"])
     if "$ref" in schema:
         return annotation is MODELS[schema["$ref"].rsplit("/", 1)[1]]
     match schema.get("type"):
@@ -141,7 +138,7 @@ def mismatches(schema: dict[str, Any], model: type[BaseModel]) -> list[str]:
             problems.append(f"{name} should be {'required' if name in required else 'optional'}")
         elif not compatible(property_schema, full_annotation(field)):
             problems.append(f"{name} has type {field.annotation}")
-    unspecified = set(fields) - set(properties) - UNSPECIFIED_FIELDS.get(model, set())
+    unspecified = set(fields) - set(properties)
     problems.extend(f"{name} is not in the spec" for name in sorted(unspecified))
     return problems
 

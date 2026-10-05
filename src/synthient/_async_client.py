@@ -195,7 +195,7 @@ class AsyncClient:
     helios_https: AsyncFeed[HeliosHTTPSEvent]
     """The Helios honeypot TLS ClientHello capture feed."""
     helios_dns: AsyncFeed[HeliosDNSEvent]
-    """The Helios honeypot DNS query feed."""
+    """The Helios honeypot DNS tunnel destination feed."""
     helios_adb: AsyncFeed[HeliosADBEvent]
     """The Helios honeypot Android Debug Bridge command feed."""
 
@@ -274,7 +274,10 @@ class AsyncClient:
         return (await self._transport.request(request, IPBatchResponse)).results
 
     async def lookup_domain(self, domain: str, *, limit: int | None = None) -> DomainInfo:
-        """Return the honeypot traffic observed for a domain. Each lookup costs one credit.
+        """Return the honeypot traffic observed for a domain.
+
+        Each lookup costs one credit, and the API allows 20 per minute per team. A domain
+        that has never been observed returns ``status`` "inactive" with zeroed stats.
 
         Args:
             domain: The domain. Internationalized names must be sent in Punycode.
@@ -330,6 +333,8 @@ class AsyncFeed(Generic[EventT]):
         self, *, limit: int | None = None, cursor: str | None = None
     ) -> AsyncIterator[Export]:
         """Iterate over the feed's exports, newest first, fetching pages lazily.
+
+        The newest hourly export can appear twice, under "latest" and under its own ID.
 
         Raises:
             SynthientError: If the API repeats a cursor, after that page's exports.

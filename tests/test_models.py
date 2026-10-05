@@ -11,13 +11,15 @@ from synthient import (
     Export,
     ExportMeta,
     ExportPage,
+    HeliosADBEvent,
+    HeliosDNSEvent,
     HeliosHTTPEvent,
     HeliosHTTPSEvent,
     IPInfo,
     Network,
     ProxyEvent,
 )
-from tests.conftest import EXPORT, IP_INFO
+from tests.conftest import EXPORT, HELIOS_HTTPS, IP_INFO
 from tests.test_account import ACCOUNT
 
 
@@ -88,8 +90,8 @@ def test_renamed_fields() -> None:
         (IPInfo, IP_INFO),
         (Export, EXPORT),
         (Account, ACCOUNT),
-        (HeliosHTTPSEvent, {"timestamp": 1778200137487, "details": {"sni": "example.com"}}),
-        (HeliosHTTPSEvent, {"timestamp": 1778200137000}),
+        (HeliosHTTPSEvent, HELIOS_HTTPS),
+        (HeliosHTTPSEvent, {**HELIOS_HTTPS, "timestamp": 1778200137000, "details": None}),
     ],
 )
 def test_json_round_trip(model: type[pydantic.BaseModel], body: dict[str, object]) -> None:
@@ -99,24 +101,58 @@ def test_json_round_trip(model: type[pydantic.BaseModel], body: dict[str, object
     assert model.model_validate(json.loads(json.dumps(body))) == value
 
 
-def test_helios_https_details_shapes() -> None:
-    as_object = HeliosHTTPSEvent.model_validate_json('{"details": {"sni": "example.com"}}')
-    as_string = HeliosHTTPSEvent.model_validate_json(
-        '{"details": "{\\"sni\\": \\"example.com\\"}"}'
-    )
-    absent = HeliosHTTPSEvent.model_validate_json('{"raw": null}')
-    assert as_object.details == {"sni": "example.com"}
-    assert as_string.details == '{"sni": "example.com"}'
-    assert absent.details is None
-    assert absent.raw is None
+def test_helios_https_details() -> None:
+    body = {**HELIOS_HTTPS, "details": {**HELIOS_HTTPS["details"], "new_field": 1}}
+    event = HeliosHTTPSEvent.model_validate_json(json.dumps(body))
+    assert event.details is not None
+    assert event.details.sni == "example.com"
+    assert event.details.cipher_suites is not None
+    assert event.details.cipher_suites[0].name == "TLS_AES_128_GCM_SHA256"
+    assert event.details.extensions is not None
+    assert event.details.extensions[0].length == 16
+    assert event.details.session_id is None
+    assert event.raw is None
+
+
+def test_helios_https_details_unparsed() -> None:
+    event = HeliosHTTPSEvent.model_validate_json(json.dumps({**HELIOS_HTTPS, "details": None}))
+    assert event.details is None
+    with pytest.raises(pydantic.ValidationError):
+        HeliosHTTPSEvent.model_validate_json(
+            json.dumps({**HELIOS_HTTPS, "details": '{"sni": "example.com"}'})
+        )
 
 
 def test_helios_http_details() -> None:
     event = HeliosHTTPEvent.model_validate_json(
-        '{"protocol": "http", "meta": {"proxy_ip": "203.0.113.1"}, "details":'
-        ' {"method": "GET", "uri": "/", "version": "HTTP/1.1", "headers": {"Host": "x"}}}'
+        '{"timestamp": 1778200137487, "tunnel_id": 7, "domain": "example.com", "port": 80,'
+        ' "protocol": "http", "meta": {"proxy_ip": "203.0.113.1"}, "details":'
+        ' {"method": "GET", "uri": "/", "version": "HTTP/1.1", "headers": {"Host": "x"}},'
+        ' "raw": "R0VUIC8gSFRUUC8xLjENCg=="}'
     )
     assert event.details is not None
     assert event.details.headers == {"Host": "x"}
-    assert event.meta is not None
     assert event.meta.proxy_ip == "203.0.113.1"
+    assert event.raw == "R0VUIC8gSFRUUC8xLjENCg=="
+
+
+def test_helios_dns() -> None:
+    event = HeliosDNSEvent.model_validate_json(
+        '{"timestamp": 1778200137487, "tunnel_id": 42, "domain": "api.ipify.org", "port": 443,'
+        ' "protocol": "dns", "meta": {"server": "hp-eu-1"}}'
+    )
+    assert event.protocol == "dns"
+    assert event.domain == "api.ipify.org"
+    assert event.timestamp == datetime(2026, 5, 8, 0, 28, 57, 487000, tzinfo=UTC)
+
+
+@pytest.mark.parametrize(
+    ("model", "body"),
+    [
+        (HeliosHTTPSEvent, {key: value for key, value in HELIOS_HTTPS.items() if key != "meta"}),
+        (HeliosADBEvent, {"session": "00075b3d", "sequential_id": 3, "command": "id"}),
+    ],
+)
+def test_helios_required_fields(model: type[pydantic.BaseModel], body: dict[str, object]) -> None:
+    with pytest.raises(pydantic.ValidationError):
+        model.model_validate_json(json.dumps(body))
