@@ -93,6 +93,29 @@ def test_timeout_applies_to_every_request(make_client: MakeClient) -> None:
     ]
 
 
+@pytest.mark.parametrize(
+    "timeout",
+    [-1, True, float("nan"), float("inf"), httpx.Timeout(1, read=-1)],
+)
+def test_invalid_timeout(timeout: float | httpx.Timeout) -> None:
+    with pytest.raises(ValueError, match="timeout values"):
+        Client(API_KEY, timeout=timeout)
+
+
+def test_timeout_configuration_is_copied(make_client: MakeClient) -> None:
+    timeout = httpx.Timeout(5)
+    timeouts: list[object] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        timeouts.append(request.extensions["timeout"])
+        return json_response(200, {})
+
+    client = make_client(handler, timeout=timeout)
+    timeout.read = 10
+    client.health()
+    assert timeouts == [{"connect": 5, "read": 5, "write": 5, "pool": 5}]
+
+
 def test_borrowed_http_client_is_not_closed() -> None:
     http = httpx.Client(transport=httpx.MockTransport(lambda _: json_response(200, {})))
     with Client(API_KEY, http_client=http) as client:

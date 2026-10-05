@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 from collections.abc import Callable, Iterable
@@ -90,11 +91,20 @@ class Config:
             raise ValueError("missing API key: pass api_key or set SYNTHIENT_API_KEY")
         if isinstance(max_retries, bool) or not isinstance(max_retries, int) or max_retries < 0:
             raise ValueError("max_retries must be a non-negative integer")
+        request_timeout = httpx.Timeout(timeout)
+        for value in request_timeout.as_dict().values():
+            if value is not None and (
+                isinstance(value, bool)
+                or not isinstance(value, int | float)
+                or not math.isfinite(value)
+                or value < 0
+            ):
+                raise ValueError("timeout values must be finite, non-negative numbers or None")
         return cls(
             api_key=api_key,
             base_url=_parse_base_url(base_url),
             max_retries=max_retries,
-            timeout=timeout if isinstance(timeout, httpx.Timeout) else httpx.Timeout(timeout),
+            timeout=request_timeout,
             user_agent=f"{_USER_AGENT} {user_agent}" if user_agent else _USER_AGENT,
             response_hook=response_hook,
         )
