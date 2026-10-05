@@ -6,7 +6,7 @@ import httpx
 import pytest
 
 from synthient import APIConnectionError, APIError, Client, ResponseMetadata, SynthientError
-from tests.conftest import PRESIGNED, MakeClient, redirect
+from tests.conftest import API_KEY, BASE_URL, PRESIGNED, MakeClient, redirect
 
 PARQUET = b"PAR1 parquet bytes PAR1"
 
@@ -50,6 +50,41 @@ def test_download_url(make_client: MakeClient) -> None:
     assert client.proxies.download_url("latest") == PRESIGNED
 
 
+def test_download_isolates_http_client_defaults() -> None:
+    requests: list[httpx.Request] = []
+    cdn_url = "https://cdn.test/file?signature=a%2Fb&part=1&part=2"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.host == "api.test":
+            return redirect(PRESIGNED)
+        if request.url.host == "storage.test":
+            return redirect(cdn_url)
+        return httpx.Response(200, content=PARQUET)
+
+    with (
+        httpx.Client(
+            transport=httpx.MockTransport(handler),
+            follow_redirects=True,
+            headers={"x-api-key": "default-key", "authorization": "default-auth"},
+            auth=("user", "password"),
+            cookies={"session": "private"},
+            params={"debug": "1"},
+        ) as http,
+        Client(API_KEY, base_url=BASE_URL, http_client=http) as client,
+    ):
+        with client.proxies.download("latest") as response:
+            assert response.read() == PARQUET
+        assert http.headers["x-api-key"] == "default-key"
+        assert http.follow_redirects
+
+    assert len(requests) == 3
+    assert requests[0].headers["x-api-key"] == API_KEY
+    assert [str(request.url) for request in requests[1:]] == [PRESIGNED, cdn_url]
+    for request in requests[1:]:
+        assert not {"x-api-key", "authorization", "cookie"} & request.headers.keys()
+
+
 def test_download_url_relative_location(make_client: MakeClient) -> None:
     client = make_client(lambda _: redirect("/files/export.parquet"))
     assert client.anonymizers.download_url("latest") == "https://api.test/files/export.parquet"
@@ -61,7 +96,10 @@ def test_download_url_relative_location(make_client: MakeClient) -> None:
         (httpx.Response(200, json={}), "expected a redirect to the export, got status 200"),
         (httpx.Response(307), "export redirect has no valid location"),
         (redirect("http://storage.test/file"), "export redirect does not use https"),
-        (redirect("ftp://storage.test/file"), "export redirect does not use https"),
+        (redirect("ftp://storage.test/file"), "export redirect has an unsupported scheme"),
+        (redirect("https://user:password@storage.test/file"), "no valid location"),
+        (redirect("   "), "no valid location"),
+        (redirect(PRESIGNED, 304), "no valid location"),
     ],
 )
 def test_download_url_invalid_redirect(
@@ -107,6 +145,8 @@ def test_storage_redirects(make_client: MakeClient) -> None:
     [
         ("http://cdn.test/file", "export redirect does not use https"),
         ("file:///etc/passwd", "export redirect has an unsupported scheme"),
+        ("https://user:password@cdn.test/file", "no valid location"),
+        ("", "no valid location"),
     ],
 )
 def test_storage_redirect_rejected(make_client: MakeClient, location: str, message: str) -> None:

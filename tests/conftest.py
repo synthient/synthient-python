@@ -8,6 +8,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import SimpleNamespace
 from typing import Any, Protocol
 
+import anyio
 import httpx
 import pytest
 
@@ -138,7 +139,11 @@ def sleeps(monkeypatch: pytest.MonkeyPatch) -> list[float]:
         recorded.append(delay)
 
     monkeypatch.setattr(synthient._client, "time", SimpleNamespace(sleep=recorded.append))
-    monkeypatch.setattr(synthient._async_client, "anyio", SimpleNamespace(sleep=async_sleep))
+    monkeypatch.setattr(
+        synthient._async_client,
+        "anyio",
+        SimpleNamespace(sleep=async_sleep, move_on_after=anyio.move_on_after),
+    )
     return recorded
 
 

@@ -138,12 +138,13 @@ class BaseTransport:
             timeout=self.config.timeout,
         )
 
-    def build_storage_request(
-        self, http: httpx.Client | httpx.AsyncClient, url: httpx.URL
-    ) -> httpx.Request:
-        # Storage URLs are presigned, so the API key is never sent to them.
-        return http.build_request(
-            "GET", url, headers={"User-Agent": self.config.user_agent}, timeout=self.config.timeout
+    def build_storage_request(self, url: httpx.URL) -> httpx.Request:
+        # Client defaults can leak credentials or replace a presigned URL's query.
+        return httpx.Request(
+            "GET",
+            url,
+            headers={"User-Agent": self.config.user_agent},
+            extensions={"timeout": self.config.timeout.as_dict()},
         )
 
     def notify(self, response: httpx.Response) -> None:
@@ -161,13 +162,7 @@ class BaseTransport:
             raise SynthientError(
                 f"expected a redirect to the export, got status {response.status_code}"
             )
-        location = response.headers.get("location")
-        if not location:
-            raise SynthientError("export redirect has no valid location")
-        target = response.url.join(location)
-        if target.scheme not in {"https", response.url.scheme}:
-            raise SynthientError("export redirect does not use https")
-        return str(target)
+        return str(storage_redirect(response))
 
 
 def resolve_api_key(api_key: str | None) -> str:
@@ -315,9 +310,17 @@ def storage_redirect(response: httpx.Response) -> httpx.URL:
 
     Only http(s) targets are allowed, and an https download never downgrades to http.
     """
-    target = response.url.join(response.headers["location"])
+    location = response.headers.get("location", "").strip()
+    if not response.has_redirect_location or not location:
+        raise SynthientError("export redirect has no valid location")
+    try:
+        target = response.url.join(location)
+    except httpx.InvalidURL:
+        raise SynthientError("export redirect has no valid location") from None
     if target.scheme not in {"http", "https"}:
         raise SynthientError("export redirect has an unsupported scheme")
     if response.url.scheme == "https" and target.scheme != "https":
         raise SynthientError("export redirect does not use https")
+    if not target.host or target.userinfo:
+        raise SynthientError("export redirect has no valid location")
     return target

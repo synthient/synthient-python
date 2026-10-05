@@ -6,8 +6,8 @@ import httpx
 import pytest
 
 import synthient
-from synthient import Client
-from tests.conftest import API_KEY, BASE_URL, MakeClient, json_response
+from synthient import APIError, Client
+from tests.conftest import API_KEY, BASE_URL, PRESIGNED, MakeClient, json_response, redirect
 
 
 def test_missing_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -122,6 +122,25 @@ def test_borrowed_http_client_is_not_closed() -> None:
         client.health()
     assert not http.is_closed
     http.close()
+
+
+def test_api_redirects_override_http_client_default() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.host == "api.test":
+            return redirect(PRESIGNED)
+        return json_response(200, {})
+
+    with (
+        httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=True) as http,
+        Client(API_KEY, base_url=BASE_URL, http_client=http) as client,
+        pytest.raises(APIError) as caught,
+    ):
+        client.health()
+    assert caught.value.status_code == 307
+    assert len(requests) == 1
 
 
 def test_api_key_is_not_in_repr() -> None:

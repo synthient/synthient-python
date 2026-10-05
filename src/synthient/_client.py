@@ -75,7 +75,9 @@ class Transport(BaseTransport):
         while True:
             can_retry = attempt < self.config.max_retries
             try:
-                response = self.http.send(self.build_request(self.http, request), stream=True)
+                response = self.http.send(
+                    self.build_request(self.http, request), stream=True, follow_redirects=False
+                )
             except httpx.TransportError as exc:
                 if not (
                     can_retry and request.policy is RetryPolicy.TRANSIENT and is_transient(exc)
@@ -100,7 +102,7 @@ class Transport(BaseTransport):
         """Read at most ``limit + 1`` bytes of a response body."""
         body = bytearray()
         for chunk in response.iter_bytes():
-            body += chunk
+            body += chunk[: limit + 1 - len(body)]
             if len(body) > limit:
                 break
         return bytes(body)
@@ -108,7 +110,7 @@ class Transport(BaseTransport):
     def api_error(self, response: httpx.Response) -> APIError:
         try:
             body = self.read(response, MAX_ERROR_SIZE)
-        except httpx.TransportError as exc:
+        except (httpx.TransportError, httpx.DecodingError) as exc:
             error = api_error(response, b"")
             error.__cause__ = exc
             return error
@@ -123,6 +125,8 @@ class Transport(BaseTransport):
                 body = self.read(response, MAX_RESPONSE_SIZE)
             except httpx.TransportError as exc:
                 raise connection_error(exc) from exc
+            except httpx.DecodingError as exc:
+                raise SynthientError("invalid response encoding") from exc
         finally:
             response.close()
         if len(body) > MAX_RESPONSE_SIZE:
@@ -152,7 +156,8 @@ class Transport(BaseTransport):
         for _ in range(MAX_REDIRECTS + 1):
             try:
                 response = self.http.send(
-                    self.build_storage_request(self.http, target),
+                    self.build_storage_request(target),
+                    auth=None,
                     stream=True,
                     follow_redirects=False,
                 )
@@ -194,7 +199,9 @@ class Client:
             to connect and 60 seconds for each read, which also suits streams because the
             API sends a keepalive line every 15 seconds.
         http_client: An httpx client to send requests with, for proxies, TLS, or
-            transports. The SDK never closes or modifies it.
+            transports. The SDK never closes or modifies it. API redirects are disabled.
+            Storage requests exclude its default headers, cookies, query parameters,
+            and authentication to protect credentials and presigned URLs.
         user_agent: Appended to the User-Agent header, such as "my-app/1.2".
         response_hook: Called with the ResponseMetadata of every API response, including
             retries, pages, stream handshakes, and errors. Download responses from
@@ -357,6 +364,8 @@ class Feed(Generic[EventT]):
                     yield decode(line, self._event)
         except httpx.TransportError as exc:
             raise connection_error(exc) from exc
+        except httpx.DecodingError as exc:
+            raise SynthientError("invalid response encoding") from exc
         last = lines.finish()
         if last is not None:
             yield decode(last, self._event)

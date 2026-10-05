@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator, AsyncIterator, Iterable
-from contextlib import asynccontextmanager
+from contextlib import aclosing, asynccontextmanager
 from datetime import date
 from http import HTTPStatus
 from ipaddress import IPv4Address, IPv6Address
-from typing import Generic, Self
+from typing import Generic, Self, cast
 
 import anyio
 import httpx
@@ -58,6 +58,27 @@ from synthient._ndjson import LineBuffer
 from synthient._retry import RetryPolicy, backoff, is_transient, retry_delay
 
 
+async def _close_http(
+    resource: httpx.AsyncClient | httpx.Response | httpx.AsyncByteStream,
+) -> None:
+    # AnyIO cancellation would otherwise interrupt the awaits that release connections.
+    with anyio.move_on_after(5, shield=True):
+        await resource.aclose()
+
+
+class _ClosingStream(httpx.AsyncByteStream):
+    """Protect cleanup when HTTPX closes a fully consumed response itself."""
+
+    def __init__(self, stream: httpx.AsyncByteStream) -> None:
+        self._stream = stream
+
+    def __aiter__(self) -> AsyncIterator[bytes]:
+        return self._stream.__aiter__()
+
+    async def aclose(self) -> None:
+        await _close_http(self._stream)
+
+
 class AsyncTransport(BaseTransport):
     def __init__(self, config: Config, http: httpx.AsyncClient | None) -> None:
         super().__init__(config)
@@ -66,7 +87,7 @@ class AsyncTransport(BaseTransport):
 
     async def aclose(self) -> None:
         if self.owns_http and not self.closed:
-            await self.http.aclose()
+            await _close_http(self.http)
         self.closed = True
 
     async def send(self, request: Request) -> httpx.Response:
@@ -75,7 +96,9 @@ class AsyncTransport(BaseTransport):
         while True:
             can_retry = attempt < self.config.max_retries
             try:
-                response = await self.http.send(self.build_request(self.http, request), stream=True)
+                response = await self.http.send(
+                    self.build_request(self.http, request), stream=True, follow_redirects=False
+                )
             except httpx.TransportError as exc:
                 if not (
                     can_retry and request.policy is RetryPolicy.TRANSIENT and is_transient(exc)
@@ -84,31 +107,35 @@ class AsyncTransport(BaseTransport):
                 await anyio.sleep(backoff(attempt))
                 attempt += 1
                 continue
+            if isinstance(response.stream, httpx.AsyncByteStream):
+                response.stream = _ClosingStream(response.stream)
             try:
                 self.notify(response)
             except BaseException:
-                await response.aclose()
+                await _close_http(response)
                 raise
             delay = retry_delay(request.policy, response, attempt) if can_retry else None
             if delay is None:
                 return response
-            await response.aclose()
+            await _close_http(response)
             await anyio.sleep(delay)
             attempt += 1
 
     async def read(self, response: httpx.Response, limit: int) -> bytes:
         """Read at most ``limit + 1`` bytes of a response body."""
         body = bytearray()
-        async for chunk in response.aiter_bytes():
-            body += chunk
-            if len(body) > limit:
-                break
+        chunks = cast(AsyncGenerator[bytes, None], response.aiter_bytes())
+        async with aclosing(chunks):
+            async for chunk in chunks:
+                body += chunk[: limit + 1 - len(body)]
+                if len(body) > limit:
+                    break
         return bytes(body)
 
     async def api_error(self, response: httpx.Response) -> APIError:
         try:
             body = await self.read(response, MAX_ERROR_SIZE)
-        except httpx.TransportError as exc:
+        except (httpx.TransportError, httpx.DecodingError) as exc:
             error = api_error(response, b"")
             error.__cause__ = exc
             return error
@@ -123,8 +150,10 @@ class AsyncTransport(BaseTransport):
                 body = await self.read(response, MAX_RESPONSE_SIZE)
             except httpx.TransportError as exc:
                 raise connection_error(exc) from exc
+            except httpx.DecodingError as exc:
+                raise SynthientError("invalid response encoding") from exc
         finally:
-            await response.aclose()
+            await _close_http(response)
         if len(body) > MAX_RESPONSE_SIZE:
             raise SynthientError(f"response body exceeds {MAX_RESPONSE_SIZE} bytes")
         return decode(body, model)
@@ -135,7 +164,7 @@ class AsyncTransport(BaseTransport):
             try:
                 raise await self.api_error(response)
             finally:
-                await response.aclose()
+                await _close_http(response)
         return response
 
     async def download_url(self, path: str) -> str:
@@ -145,32 +174,35 @@ class AsyncTransport(BaseTransport):
                 raise await self.api_error(response)
             return self.export_location(response)
         finally:
-            await response.aclose()
+            await _close_http(response)
 
     async def open_download(self, url: str) -> httpx.Response:
         target = httpx.URL(url)
         for _ in range(MAX_REDIRECTS + 1):
             try:
                 response = await self.http.send(
-                    self.build_storage_request(self.http, target),
+                    self.build_storage_request(target),
+                    auth=None,
                     stream=True,
                     follow_redirects=False,
                 )
             except httpx.TransportError as exc:
                 raise connection_error(exc) from exc
+            if isinstance(response.stream, httpx.AsyncByteStream):
+                response.stream = _ClosingStream(response.stream)
             if not response.is_redirect:
                 break
             try:
                 target = storage_redirect(response)
             finally:
-                await response.aclose()
+                await _close_http(response)
         else:
             raise SynthientError("too many export redirects")
         if response.status_code != HTTPStatus.OK:
             try:
                 raise await self.api_error(response)
             finally:
-                await response.aclose()
+                await _close_http(response)
         return response
 
 
@@ -312,8 +344,10 @@ class AsyncFeed(Generic[EventT]):
         try:
             yield events
         finally:
-            await events.aclose()
-            await response.aclose()
+            try:
+                await events.aclose()
+            finally:
+                await _close_http(response)
 
     async def _events(self, response: httpx.Response) -> AsyncGenerator[EventT, None]:
         lines = LineBuffer()
@@ -323,6 +357,8 @@ class AsyncFeed(Generic[EventT]):
                     yield decode(line, self._event)
         except httpx.TransportError as exc:
             raise connection_error(exc) from exc
+        except httpx.DecodingError as exc:
+            raise SynthientError("invalid response encoding") from exc
         last = lines.finish()
         if last is not None:
             yield decode(last, self._event)
@@ -375,4 +411,4 @@ class AsyncFeed(Generic[EventT]):
         try:
             yield response
         finally:
-            await response.aclose()
+            await _close_http(response)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import closing
 
 import httpx
 import pytest
@@ -143,3 +144,29 @@ def test_oversized_success_body(make_client: MakeClient) -> None:
     with pytest.raises(SynthientError, match="response body exceeds") as caught:
         client.proxies.list_exports()
     assert not isinstance(caught.value, APIError)
+
+
+def test_response_buffer_is_bounded(make_client: MakeClient) -> None:
+    body = ChunkStream([b"a" * 100, b"b" * 100])
+    client = make_client(lambda _: httpx.Response(200, stream=body))
+    with closing(httpx.Response(200, stream=body)) as response:
+        assert client._transport.read(response, 8) == b"a" * 9
+    assert body.sent == 1
+    assert body.closed
+
+
+@pytest.mark.parametrize("status", [200, 403])
+def test_invalid_compression(make_client: MakeClient, status: int) -> None:
+    body = ChunkStream([b"invalid gzip"])
+    client = make_client(
+        lambda _: httpx.Response(status, stream=body, headers={"content-encoding": "gzip"})
+    )
+    with pytest.raises(SynthientError) as caught:
+        client.account()
+    if status == 403:
+        assert isinstance(caught.value, APIError)
+        assert caught.value.status_code == status
+    else:
+        assert str(caught.value) == "invalid response encoding"
+    assert isinstance(caught.value.__cause__, httpx.DecodingError)
+    assert body.closed
