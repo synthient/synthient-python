@@ -24,7 +24,8 @@ import synthient
 client = synthient.Client()  # reads SYNTHIENT_API_KEY
 
 info = client.lookup_ip("8.8.8.8")
-print(info.network.isp, info.intelligence.risk_score)
+if info.intelligence is not None:
+    print(info.intelligence.risk_score, info.intelligence.categories)
 ```
 
 Look up many addresses in one request:
@@ -32,7 +33,8 @@ Look up many addresses in one request:
 ```python
 results = client.lookup_ips(["8.8.8.8", "1.1.1.1"])
 for result in results:
-    print(result.ip, result.intelligence.risk_score)
+    if result.intelligence is not None:
+        print(result.ip, result.intelligence.risk_score)
 ```
 
 Consume a real-time feed:
