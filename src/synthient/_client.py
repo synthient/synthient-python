@@ -19,7 +19,6 @@ from synthient._base import (
     MAX_RESPONSE_SIZE,
     BaseTransport,
     Config,
-    EventT,
     ModelT,
     Request,
     ResponseHook,
@@ -321,7 +320,7 @@ class Client:
         return self._transport.request(lookup_domain_request(domain, limit), DomainInfo)
 
 
-class Feed(Generic[EventT]):
+class Feed(Generic[ModelT]):
     """A Synthient data feed: a real-time event stream and hourly parquet exports that
     roll up into daily exports. Access feeds through a client, such as ``client.proxies``.
 
@@ -331,13 +330,13 @@ class Feed(Generic[EventT]):
     up. ``Export.id`` values can be passed as they are.
     """
 
-    def __init__(self, transport: Transport, path: str, event: type[EventT]) -> None:
+    def __init__(self, transport: Transport, path: str, event: type[ModelT]) -> None:
         self._transport = transport
         self._path = path
         self._event = event
 
     @contextmanager
-    def stream(self) -> Generator[Iterator[EventT], None, None]:
+    def stream(self) -> Generator[Iterator[ModelT], None, None]:
         """Open the feed's real-time stream and yield an iterator over its events.
 
         The connection opens when the ``with`` block is entered and closes when it exits,
@@ -356,7 +355,7 @@ class Feed(Generic[EventT]):
             events.close()
             response.close()
 
-    def _events(self, response: httpx.Response) -> Generator[EventT, None, None]:
+    def _events(self, response: httpx.Response) -> Generator[ModelT, None, None]:
         lines = LineBuffer()
         try:
             for chunk in response.iter_bytes():

@@ -33,7 +33,6 @@ _EXPORT_ID = re.compile(r"([0-9]{4}-[0-9]{2}-[0-9]{2})(?:/([0-9]{1,2}))?")
 _USER_AGENT = f"synthient-python/{version('synthient')}"
 
 ModelT = TypeVar("ModelT", bound=BaseModel)
-EventT = TypeVar("EventT", bound=BaseModel)
 
 
 @dataclass(frozen=True)

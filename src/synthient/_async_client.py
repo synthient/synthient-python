@@ -19,7 +19,6 @@ from synthient._base import (
     MAX_RESPONSE_SIZE,
     BaseTransport,
     Config,
-    EventT,
     ModelT,
     Request,
     ResponseHook,
@@ -325,16 +324,16 @@ class AsyncClient:
         return await self._transport.request(lookup_domain_request(domain, limit), DomainInfo)
 
 
-class AsyncFeed(Generic[EventT]):
+class AsyncFeed(Generic[ModelT]):
     """The async counterpart of ``Feed``. Access feeds through an ``AsyncClient``."""
 
-    def __init__(self, transport: AsyncTransport, path: str, event: type[EventT]) -> None:
+    def __init__(self, transport: AsyncTransport, path: str, event: type[ModelT]) -> None:
         self._transport = transport
         self._path = path
         self._event = event
 
     @asynccontextmanager
-    async def stream(self) -> AsyncGenerator[AsyncIterator[EventT], None]:
+    async def stream(self) -> AsyncGenerator[AsyncIterator[ModelT], None]:
         """Open the feed's real-time stream and yield an async iterator over its events.
 
         The connection opens when the ``async with`` block is entered and closes when it
@@ -350,7 +349,7 @@ class AsyncFeed(Generic[EventT]):
             finally:
                 await _close_http(response)
 
-    async def _events(self, response: httpx.Response) -> AsyncGenerator[EventT, None]:
+    async def _events(self, response: httpx.Response) -> AsyncGenerator[ModelT, None]:
         lines = LineBuffer()
         try:
             async for chunk in response.aiter_bytes():
