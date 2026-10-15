@@ -103,7 +103,7 @@ def fetch(
 
     Raises:
         SchemaError: If reflection fails. ``explain`` describes common causes.
-        ValueError: If the endpoint is invalid.
+        ValueError: If the endpoint or API key is invalid.
     """
     endpoint, host = _normalize_endpoint(endpoint)
     api_key = resolve_api_key(api_key)

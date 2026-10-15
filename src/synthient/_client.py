@@ -204,7 +204,8 @@ class Client:
             storage are excluded.
 
     Raises:
-        ValueError: If the API key is missing or an option is invalid.
+        ValueError: If the API key is missing or not printable ASCII, or an option is
+            invalid.
     """
 
     proxies: Feed[ProxyEvent]

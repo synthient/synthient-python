@@ -82,6 +82,11 @@ def test_fetch_options(
     assert schema.symbols == [request]
 
 
+def test_fetch_non_printable_api_key() -> None:
+    with pytest.raises(ValueError, match="invalid API key"):
+        fetch("sk_live\nsecret", endpoint="127.0.0.1:1", plaintext=True)
+
+
 def test_fetch_unknown_symbol(start_server: Callable[..., tuple[str, KeyRecorder]]) -> None:
     address, _ = start_server()
     with pytest.raises(SchemaError) as caught:

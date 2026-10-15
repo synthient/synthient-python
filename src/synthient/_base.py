@@ -167,7 +167,11 @@ class BaseTransport:
 def resolve_api_key(api_key: str | None) -> str:
     if api_key is None:
         api_key = os.environ.get("SYNTHIENT_API_KEY", "")
-    return api_key.strip()
+    api_key = api_key.strip()
+    # Validate here because h11's error for an illegal header value quotes the key.
+    if not (api_key.isascii() and api_key.isprintable()):
+        raise ValueError("invalid API key: it must be printable ASCII")
+    return api_key
 
 
 def _parse_base_url(raw: str) -> str:

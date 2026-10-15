@@ -36,6 +36,13 @@ def test_api_key_from_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     assert seen == ["env-key", "explicit"]
 
 
+@pytest.mark.parametrize("api_key", ["sk_live\nsecret", "sk_live\x7fsecret", "sk_live_sécret"])
+def test_non_printable_api_key(api_key: str) -> None:
+    with pytest.raises(ValueError, match="invalid API key") as caught:
+        Client(api_key)
+    assert "secret" not in str(caught.value)
+
+
 @pytest.mark.parametrize(
     "base_url",
     [
