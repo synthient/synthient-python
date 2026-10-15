@@ -25,15 +25,12 @@ from synthient._base import (
     ResponseHook,
     connection_error,
     decode,
-    export_meta_request,
-    export_url_path,
-    health_request,
+    export_path,
     list_exports_request,
     lookup_domain_request,
     lookup_ip_request,
     lookup_ips_request,
     storage_redirect,
-    stream_request,
 )
 from synthient._errors import APIError, SynthientError, api_error
 from synthient._models import (
@@ -159,7 +156,7 @@ class AsyncTransport(BaseTransport):
         return decode(body, model)
 
     async def open_stream(self, path: str) -> httpx.Response:
-        response = await self.send(stream_request(path))
+        response = await self.send(Request(path=f"{path}/stream", accept="application/x-ndjson"))
         if response.status_code != HTTPStatus.OK:
             try:
                 raise await self.api_error(response)
@@ -280,7 +277,10 @@ class AsyncClient:
         Raises:
             APIError: If the API reports a problem. A 503 is not retried.
         """
-        await self._transport.request(health_request(), HealthResponse)
+        # A 503 from /health is the answer, so only 429 is retried.
+        await self._transport.request(
+            Request(path="/health", policy=RetryPolicy.RATE_LIMIT), HealthResponse
+        )
 
     async def lookup_ip(self, ip: str | IPv4Address | IPv6Address) -> IPInfo:
         """Return intelligence for an IPv4 or IPv6 address.
@@ -306,10 +306,11 @@ class AsyncClient:
                 is sent.
             APIError: With status 422 if every address is private or reserved.
         """
-        request = lookup_ips_request(ips)
-        if request is None:
+        addresses = list(ips)
+        if not addresses:
             return []
-        return (await self._transport.request(request, IPBatchResponse)).results
+        batch = await self._transport.request(lookup_ips_request(addresses), IPBatchResponse)
+        return batch.results
 
     async def lookup_domain(self, domain: str, *, limit: int | None = None) -> DomainInfo:
         """Return the honeypot traffic observed for a domain.
@@ -395,11 +396,13 @@ class AsyncFeed(Generic[EventT]):
 
     async def export_meta(self, export: str | date) -> ExportMeta:
         """Return the checksum, size, row count, and parquet schema of an export."""
-        return await self._transport.request(export_meta_request(self._path, export), ExportMeta)
+        return await self._transport.request(
+            Request(path=f"{self._path}/export/{export_path(export)}/meta"), ExportMeta
+        )
 
     async def download_url(self, export: str | date) -> str:
         """Return a presigned URL for an export's parquet file. See ``Feed.download_url``."""
-        return await self._transport.download_url(export_url_path(self._path, export))
+        return await self._transport.download_url(f"{self._path}/export/{export_path(export)}")
 
     @asynccontextmanager
     async def download(self, export: str | date) -> AsyncGenerator[httpx.Response, None]:

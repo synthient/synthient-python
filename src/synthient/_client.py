@@ -25,15 +25,12 @@ from synthient._base import (
     ResponseHook,
     connection_error,
     decode,
-    export_meta_request,
-    export_url_path,
-    health_request,
+    export_path,
     list_exports_request,
     lookup_domain_request,
     lookup_ip_request,
     lookup_ips_request,
     storage_redirect,
-    stream_request,
 )
 from synthient._errors import APIError, SynthientError, api_error
 from synthient._models import (
@@ -134,7 +131,7 @@ class Transport(BaseTransport):
         return decode(body, model)
 
     def open_stream(self, path: str) -> httpx.Response:
-        response = self.send(stream_request(path))
+        response = self.send(Request(path=f"{path}/stream", accept="application/x-ndjson"))
         if response.status_code != HTTPStatus.OK:
             try:
                 raise self.api_error(response)
@@ -277,7 +274,10 @@ class Client:
         Raises:
             APIError: If the API reports a problem. A 503 is not retried.
         """
-        self._transport.request(health_request(), HealthResponse)
+        # A 503 from /health is the answer, so only 429 is retried.
+        self._transport.request(
+            Request(path="/health", policy=RetryPolicy.RATE_LIMIT), HealthResponse
+        )
 
     def lookup_ip(self, ip: str | IPv4Address | IPv6Address) -> IPInfo:
         """Return intelligence for an IPv4 or IPv6 address.
@@ -303,10 +303,10 @@ class Client:
                 is sent.
             APIError: With status 422 if every address is private or reserved.
         """
-        request = lookup_ips_request(ips)
-        if request is None:
+        addresses = list(ips)
+        if not addresses:
             return []
-        return self._transport.request(request, IPBatchResponse).results
+        return self._transport.request(lookup_ips_request(addresses), IPBatchResponse).results
 
     def lookup_domain(self, domain: str, *, limit: int | None = None) -> DomainInfo:
         """Return the honeypot traffic observed for a domain.
@@ -402,7 +402,9 @@ class Feed(Generic[EventT]):
 
     def export_meta(self, export: str | date) -> ExportMeta:
         """Return the checksum, size, row count, and parquet schema of an export."""
-        return self._transport.request(export_meta_request(self._path, export), ExportMeta)
+        return self._transport.request(
+            Request(path=f"{self._path}/export/{export_path(export)}/meta"), ExportMeta
+        )
 
     def download_url(self, export: str | date) -> str:
         """Return a presigned URL for an export's parquet file.
@@ -410,7 +412,7 @@ class Feed(Generic[EventT]):
         The URL is valid for 24 hours and grants access without an API key, so treat it
         as a secret. It suits tools that read parquet over HTTPS directly.
         """
-        return self._transport.download_url(export_url_path(self._path, export))
+        return self._transport.download_url(f"{self._path}/export/{export_path(export)}")
 
     @contextmanager
     def download(self, export: str | date) -> Generator[httpx.Response, None, None]:

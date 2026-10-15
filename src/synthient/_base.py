@@ -194,17 +194,12 @@ def _ip(value: str | IPv4Address | IPv6Address) -> str:
     return str(ip_address(value))
 
 
-def _positive(name: str, value: int | None) -> dict[str, str]:
-    if value is None:
+def _limit(limit: int | None) -> dict[str, str]:
+    if limit is None:
         return {}
-    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
-        raise ValueError(f"{name} must be a positive integer")
-    return {name: str(value)}
-
-
-def health_request() -> Request:
-    # A 503 from /health is the answer, so only 429 is retried.
-    return Request(path="/health", policy=RetryPolicy.RATE_LIMIT)
+    if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
+        raise ValueError("limit must be a positive integer")
+    return {"limit": str(limit)}
 
 
 def lookup_ip_request(ip: str | IPv4Address | IPv6Address) -> Request:
@@ -213,15 +208,13 @@ def lookup_ip_request(ip: str | IPv4Address | IPv6Address) -> Request:
     )
 
 
-def lookup_ips_request(ips: Iterable[str | IPv4Address | IPv6Address]) -> Request | None:
+def lookup_ips_request(ips: Iterable[str | IPv4Address | IPv6Address]) -> Request:
     addresses: list[str] = []
     for index, ip in enumerate(ips):
         try:
             addresses.append(_ip(ip))
         except ValueError as exc:
             raise ValueError(f"invalid IP address at index {index}") from exc
-    if not addresses:
-        return None
     if len(addresses) > MAX_BATCH_SIZE:
         raise ValueError(f"a batch holds at most {MAX_BATCH_SIZE} addresses, got {len(addresses)}")
     return Request(
@@ -237,28 +230,16 @@ def lookup_domain_request(domain: str, limit: int | None) -> Request:
         raise ValueError(f"invalid domain {domain!r}")
     return Request(
         path=f"/lookup/domain/{quote(domain, safe=_PATH_SAFE)}",
-        params=_positive("limit", limit),
+        params=_limit(limit),
         policy=RetryPolicy.RATE_LIMIT,
     )
 
 
 def list_exports_request(feed_path: str, limit: int | None, cursor: str | None) -> Request:
-    params = _positive("limit", limit)
+    params = _limit(limit)
     if cursor:
         params["cursor"] = cursor
     return Request(path=f"{feed_path}/export", params=params)
-
-
-def stream_request(feed_path: str) -> Request:
-    return Request(path=f"{feed_path}/stream", accept="application/x-ndjson")
-
-
-def export_meta_request(feed_path: str, export: str | date) -> Request:
-    return Request(path=f"{export_url_path(feed_path, export)}/meta")
-
-
-def export_url_path(feed_path: str, export: str | date) -> str:
-    return f"{feed_path}/export/{export_path(export)}"
 
 
 def export_path(export: str | date) -> str:
