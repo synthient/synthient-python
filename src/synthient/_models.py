@@ -69,7 +69,6 @@ class Network(_Model):
     asn: int
     """The autonomous system number, or 0 if the address is not routed."""
     isp: str
-    """The name of the internet service provider."""
     type: str
     """The network type, such as "RESIDENTIAL", "MOBILE", or "DATACENTER".
 
@@ -80,9 +79,7 @@ class Network(_Model):
     domain: str | None = None
     """The network operator's domain."""
     abuse_email: str | None = None
-    """The operator's abuse contact email."""
     abuse_phone: str | None = None
-    """The operator's abuse contact phone number."""
 
 
 class Location(_Model):
@@ -93,7 +90,6 @@ class Location(_Model):
     state: str
     """The state or region."""
     city: str
-    """The city."""
     timezone: str
     """The IANA time zone name."""
     latitude: float
@@ -101,7 +97,6 @@ class Location(_Model):
     longitude: float
     """The longitude in degrees."""
     geo_hash: str
-    """The geohash of the coordinates."""
 
 
 class Provider(_Model):
@@ -112,7 +107,6 @@ class Provider(_Model):
     type: str
     """The service category."""
     last_seen: UnixTime
-    """When the service was last seen using the address."""
 
 
 class Device(_Model):
@@ -126,7 +120,6 @@ class Device(_Model):
     version: str
     """The operating system version."""
     last_seen: UnixTime
-    """When the device was last seen."""
 
 
 class Intelligence(_Model):
@@ -161,7 +154,6 @@ class IPInfo(_Model):
     network: Network | None = None
     """The network that announces the address."""
     location: Location | None = None
-    """The address's geolocation."""
     intelligence: Intelligence | None = None
     """The risk score and the proxy, VPN, and device observations for the address."""
 
@@ -178,18 +170,14 @@ class DomainStats(_Model):
     """Aggregate event counts for a domain."""
 
     events_24h: int
-    """The number of events in the last 24 hours."""
     total_events_30d: int
-    """The number of events in the last 30 days."""
 
 
 class UniqueIPs(_Model):
     """The distinct source addresses seen for a domain."""
 
     value_24h: int
-    """The count for the last 24 hours."""
     value_30d: int
-    """The count for the last 30 days."""
     sparkline_24h: list[int]
     """Hourly counts for the last 24 hours."""
 
@@ -200,7 +188,6 @@ class TimeSeriesPoint(_Model):
     date: UnixTime
     """The start of the day."""
     events: int
-    """The number of events that day."""
     unique_ips: int
     """The number of distinct source addresses that day."""
 
@@ -209,16 +196,13 @@ class ASNCount(_Model):
     """An autonomous system and its event count."""
 
     asn: int
-    """The autonomous system number."""
     events: int
-    """The number of events from the network."""
 
 
 class SubdomainCount(_Model):
     """A subdomain and its event count."""
 
     subdomain: str
-    """The targeted subdomain."""
     count: int
     """The number of events that targeted it."""
 
@@ -227,7 +211,6 @@ class PortCount(_Model):
     """A port and its event count."""
 
     port: int
-    """The targeted port."""
     count: int
     """The number of events that targeted it."""
 
@@ -238,9 +221,7 @@ class CountryCount(_Model):
     country_code: str
     """The ISO 3166-1 alpha-2 country code."""
     events: int
-    """The number of events from the country."""
     unique_ips: int
-    """The number of distinct addresses from the country."""
 
 
 class ActivityStats(_Model):
@@ -251,9 +232,7 @@ class ActivityStats(_Model):
     "Activity is burst-driven with significant peaks."
     """
     median_per_hour: int
-    """The median number of events per hour."""
     p95_per_hour: int
-    """The 95th percentile of events per hour."""
     peak_hour: int
     """The busiest UTC hour of the day over the last 30 days."""
     quiet_hour: int
@@ -264,15 +243,12 @@ class DomainEvent(_Model):
     """A single honeypot event for a domain."""
 
     timestamp: UnixTime
-    """When the event happened."""
     source_ip_masked: str
     """The proxy exit address that carried the event. Despite the name, it is not masked."""
     target_subdomain: str
-    """The subdomain that was targeted."""
     country_code: str
     """The source country."""
     port: int
-    """The targeted port."""
 
 
 class DomainInfo(_Model):
@@ -314,9 +290,7 @@ class Organization(_Model):
     """The organization an account belongs to."""
 
     id: str
-    """The organization ID."""
     name: str
-    """The organization name."""
     relation: str
     """The account's role, such as "OWNER", "ADMIN", or "MEMBER"."""
 
@@ -336,22 +310,16 @@ class AccountAPIKey(_Model):
     id: str
     """The key ID. It is not the secret key."""
     name: str
-    """The key name."""
     created_at: Annotated[datetime, Field(strict=False)]
-    """When the key was created."""
 
 
 class Account(_Model):
     """The account that owns an API key."""
 
     email: str
-    """The account email address."""
     first_name: str
-    """The account holder's first name."""
     last_name: str
-    """The account holder's last name."""
     organization: Organization
-    """The organization the account belongs to."""
     scopes: list[str]
     """The permissions granted to the key, such as "BASIC" or "PROXY_FEEDS".
 
@@ -379,13 +347,10 @@ class Export(_Model):
     hour: int | None = None
     """The UTC hour of an hourly export, or None for a daily export."""
     size_bytes: int
-    """The size of the parquet file in bytes."""
     row_count: int
-    """The number of rows in the parquet file."""
     checksum: str
     """The hex-encoded SHA-256 of the parquet file."""
     created_at: UnixTime
-    """When the export was produced."""
     download_path: str
     """The API path of the export's download, including the version prefix."""
 
@@ -396,7 +361,6 @@ class ExportPage(_Model):
     stream: str
     """The feed's stream identifier, such as "proxies"."""
     exports: list[Export] = Field(alias="feeds")
-    """The exports on this page."""
     next_cursor: str | None = None
     """Fetches the next page. It is None or "" on the last page."""
 
@@ -405,7 +369,6 @@ class ParquetColumn(_Model):
     """A column of a parquet export."""
 
     name: str
-    """The column name."""
     type: str
     """The column type, such as "string" or "int64"."""
 
@@ -421,9 +384,7 @@ class ExportMeta(_Model):
     """A parquet export's metadata, without its contents."""
 
     id: str
-    """Identifies the export."""
     stream: str
-    """The feed's stream identifier."""
     kind: str
     """Either "hourly" or "daily"."""
     format: str
@@ -433,13 +394,11 @@ class ExportMeta(_Model):
     hour: int | None = None
     """The UTC hour of an hourly export, or None for a daily export."""
     rows: int
-    """The number of rows in the parquet file."""
     size: int
     """The size of the parquet file in bytes."""
     checksum: str
     """The hex-encoded SHA-256 of the parquet file."""
     created_at: UnixTime
-    """When the export was produced."""
     parquet_schema: ParquetSchema = Field(alias="schema")
     """The parquet columns."""
 
@@ -456,18 +415,14 @@ class ProxyEvent(_Model):
     country_code: str | None = None
     """The ISO 3166-1 alpha-2 country of the address."""
     asn: int | None = None
-    """The autonomous system number of the address."""
     timestamp: UnixTime | None = None
-    """When the proxy was seen."""
 
 
 class AnonymizerEvent(_Model):
     """A VPN or anonymizer IP range from the anonymizers feed."""
 
     range_start: str | None = None
-    """The first address of the range."""
     range_end: str | None = None
-    """The last address of the range."""
     provider: str | None = None
     """The service tag."""
     type: str | None = None
@@ -477,14 +432,12 @@ class AnonymizerEvent(_Model):
     asn: int | None = None
     """The autonomous system number of ``range_start``."""
     timestamp: UnixTime | None = None
-    """When the range was seen."""
 
 
 class TorrentFile(_Model):
     """A file in a torrent."""
 
     path: str | None = None
-    """The file path within the torrent."""
     length: int | None = None
     """The file size in bytes."""
 
@@ -493,9 +446,7 @@ class TorrentPeer(_Model):
     """A peer seen sharing a torrent."""
 
     ip: str | None = None
-    """The peer's address."""
     port: int | None = None
-    """The peer's port."""
     source: str | None = None
     """Where the peer was found, such as "DHT", "PEX", or "tracker"."""
     encrypted: bool | None = None
@@ -508,21 +459,15 @@ class TorrentEvent(_Model):
     info_hash: str | None = None
     """The hex-encoded SHA-1 info hash."""
     name: str | None = None
-    """The torrent name."""
     magnet_uri: str | None = None
-    """The torrent's magnet link."""
     total_size: int | None = None
     """The total size of the torrent's files in bytes."""
     piece_length: int | None = None
     """The piece size in bytes."""
     file_count: int | None = None
-    """The number of files in the torrent."""
     files: list[TorrentFile] | None = None
-    """The torrent's files."""
     peers: list[TorrentPeer] | None = None
-    """The peers seen sharing the torrent."""
     timestamp: UnixTime | None = None
-    """When the torrent was seen."""
 
 
 class JA4TEvent(_Model):
@@ -531,7 +476,6 @@ class JA4TEvent(_Model):
     ip: str | None = None
     """The address the fingerprint was seen from."""
     ja4t: str | None = None
-    """The JA4T fingerprint."""
     provider: str | None = None
     """The service tag of the address."""
     type: str | None = None
@@ -539,9 +483,7 @@ class JA4TEvent(_Model):
     country_code: str | None = None
     """The ISO 3166-1 alpha-2 country of the address."""
     asn: int | None = None
-    """The autonomous system number of the address."""
     timestamp: UnixTime | None = None
-    """When the fingerprint was seen."""
 
 
 class HeliosMeta(_Model):
@@ -561,20 +503,17 @@ class HTTPRequestDetails(_Model):
     """A parsed HTTP request."""
 
     method: str | None = None
-    """The request method."""
     uri: str | None = None
     """The request target."""
     version: str | None = None
     """The HTTP version, such as "HTTP/1.1"."""
     headers: dict[str, str] | None = None
-    """The request headers."""
 
 
 class HeliosHTTPEvent(_Model):
     """An HTTP request captured by a Helios honeypot."""
 
     timestamp: UnixTime
-    """When the request was captured."""
     tunnel_id: int
     """Identifies the proxy tunnel the request arrived through."""
     domain: str
@@ -595,7 +534,6 @@ class TLSCodeName(_Model):
     """A TLS registry code point and its name."""
 
     code: int | None = None
-    """The code point."""
     name: str | None = None
     """The registered name. GREASE values read as "GREASE(0x....)"."""
 
@@ -604,9 +542,7 @@ class TLSExtension(_Model):
     """A TLS extension in a ClientHello."""
 
     code: int | None = None
-    """The extension type code point."""
     name: str | None = None
-    """The extension name."""
     length: int | None = None
     """The length of the extension body in bytes."""
 
@@ -618,7 +554,6 @@ class TLSClientHello(_Model):
     """
 
     record_version: str | None = None
-    """The record layer version."""
     handshake_version: str | None = None
     """The handshake version, such as "TLS 1.2"."""
     client_random: str | None = None
@@ -632,19 +567,14 @@ class TLSClientHello(_Model):
     alpn: list[str] | None = None
     """The offered application protocols, such as "h2"."""
     cipher_suites: list[TLSCodeName] | None = None
-    """The offered cipher suites."""
     compression_methods: list[int] | None = None
-    """The offered compression methods."""
     extensions: list[TLSExtension] | None = None
     """The extensions in wire order."""
     supported_versions: list[str] | None = None
-    """The supported_versions extension values."""
     supported_groups: list[TLSCodeName] | None = None
     """The supported key exchange groups."""
     signature_algorithms: list[TLSCodeName] | None = None
-    """The supported signature algorithms."""
     ec_point_formats: list[str] | None = None
-    """The supported elliptic curve point formats."""
     key_share_groups: list[str] | None = None
     """The groups the client sent key shares for."""
     psk_key_exchange_modes: list[str] | None = None
@@ -652,30 +582,20 @@ class TLSClientHello(_Model):
     compress_certificate: list[str] | None = None
     """The supported certificate compression algorithms."""
     has_grease: bool | None = None
-    """Whether the ClientHello contains GREASE values."""
     application_settings: bool | None = None
-    """Whether the ClientHello includes the application_settings extension."""
     delegated_credentials: bool | None = None
-    """Whether the ClientHello includes the delegated_credentials extension."""
     encrypt_then_mac: bool | None = None
-    """Whether the ClientHello includes the encrypt_then_mac extension."""
     extended_master_secret: bool | None = None
-    """Whether the ClientHello includes the extended_master_secret extension."""
     post_handshake_auth: bool | None = None
-    """Whether the ClientHello includes the post_handshake_auth extension."""
     renegotiation_info: bool | None = None
-    """Whether the ClientHello includes the renegotiation_info extension."""
     signed_certificate_timestamps: bool | None = None
-    """Whether the ClientHello includes the signed_certificate_timestamp extension."""
     status_request: bool | None = None
-    """Whether the ClientHello includes the status_request extension."""
 
 
 class HeliosHTTPSEvent(_Model):
     """A TLS ClientHello captured by a Helios honeypot."""
 
     timestamp: UnixTime
-    """When the handshake was captured."""
     tunnel_id: int
     """Identifies the proxy tunnel the handshake arrived through."""
     domain: str
@@ -700,7 +620,6 @@ class HeliosDNSEvent(_Model):
     """
 
     timestamp: UnixTime
-    """When the tunnel was captured."""
     tunnel_id: int
     """Identifies the proxy tunnel."""
     domain: str
