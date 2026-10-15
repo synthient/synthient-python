@@ -9,6 +9,7 @@ from typing import Generic, Self, cast
 
 import anyio
 import httpx
+from anyio import sleep
 
 from synthient._base import (
     DEFAULT_BASE_URL,
@@ -100,7 +101,7 @@ class AsyncTransport(BaseTransport):
                     can_retry and request.policy is RetryPolicy.TRANSIENT and is_transient(exc)
                 ):
                     raise connection_error(exc) from exc
-                await anyio.sleep(backoff(attempt))
+                await sleep(backoff(attempt))
                 attempt += 1
                 continue
             if isinstance(response.stream, httpx.AsyncByteStream):
@@ -114,7 +115,7 @@ class AsyncTransport(BaseTransport):
             if delay is None:
                 return response
             await _close_http(response)
-            await anyio.sleep(delay)
+            await sleep(delay)
             attempt += 1
 
     async def read(self, response: httpx.Response, limit: int) -> bytes:

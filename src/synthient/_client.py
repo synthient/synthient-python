@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import time
 from collections.abc import Generator, Iterable, Iterator
 from contextlib import contextmanager
 from datetime import date
 from http import HTTPStatus
 from ipaddress import IPv4Address, IPv6Address
+from time import sleep
 from typing import Generic, Self
 
 import httpx
@@ -79,7 +79,7 @@ class Transport(BaseTransport):
                     can_retry and request.policy is RetryPolicy.TRANSIENT and is_transient(exc)
                 ):
                     raise connection_error(exc) from exc
-                time.sleep(backoff(attempt))
+                sleep(backoff(attempt))
                 attempt += 1
                 continue
             try:
@@ -91,7 +91,7 @@ class Transport(BaseTransport):
             if delay is None:
                 return response
             response.close()
-            time.sleep(delay)
+            sleep(delay)
             attempt += 1
 
     def read(self, response: httpx.Response, limit: int) -> bytes:

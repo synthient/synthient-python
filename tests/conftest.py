@@ -5,10 +5,8 @@ import threading
 from collections.abc import AsyncGenerator, Callable, Iterator
 from contextlib import asynccontextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from types import SimpleNamespace
 from typing import Any, Protocol
 
-import anyio
 import httpx
 import pytest
 
@@ -138,12 +136,8 @@ def sleeps(monkeypatch: pytest.MonkeyPatch) -> list[float]:
     async def async_sleep(delay: float) -> None:
         recorded.append(delay)
 
-    monkeypatch.setattr(synthient._client, "time", SimpleNamespace(sleep=recorded.append))
-    monkeypatch.setattr(
-        synthient._async_client,
-        "anyio",
-        SimpleNamespace(sleep=async_sleep, move_on_after=anyio.move_on_after),
-    )
+    monkeypatch.setattr(synthient._client, "sleep", recorded.append)
+    monkeypatch.setattr(synthient._async_client, "sleep", async_sleep)
     return recorded
 
 
