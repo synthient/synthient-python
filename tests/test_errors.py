@@ -57,8 +57,14 @@ REQUEST_ID = "0123456789abcdef0123456789abcdef"
             {"status_code": 400, "title": "", "detail": ""},
         ),
         (
-            httpx.Response(401, text="401 invalid api key"),
-            {"status_code": 401, "title": "", "request_id": ""},
+            httpx.Response(401, text="401 invalid api key\n"),
+            {"status_code": 401, "title": "", "detail": "401 invalid api key", "request_id": ""},
+        ),
+        (
+            httpx.Response(
+                502, content=b"<html>Bad Gateway</html>", headers={"content-type": "text/html"}
+            ),
+            {"status_code": 502, "title": "", "detail": ""},
         ),
         (
             httpx.Response(429, headers={"retry-after": "7"}),

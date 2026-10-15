@@ -36,7 +36,8 @@ class APIError(SynthientError):
         status_code: The HTTP status code, such as 402 when the account is out of credits.
         type: The problem type URI, or "" when the body had none.
         title: A short summary of the problem.
-        detail: An explanation of this occurrence.
+        detail: An explanation of this occurrence. For a plain-text error, such as the
+            edge's 401 for a malformed key, it is the response body.
         errors: Validation messages by field, set on 422 responses.
         request_id: The X-Request-Id of the response, useful for support requests.
         retry_after: Seconds the server asked the caller to wait, or None.
@@ -84,12 +85,15 @@ def api_error(response: httpx.Response, body: bytes) -> APIError:
     """Build an APIError from a response and its bounded body.
 
     Plain text, HTML, and malformed problem details still keep the status, request ID,
-    and Retry-After. A malformed ``errors`` member is ignored on its own.
+    and Retry-After, and a plain-text body becomes the detail. A malformed ``errors``
+    member is ignored on its own.
     """
     try:
         problem = _Problem.model_validate_json(body)
     except ValidationError:
-        problem = _Problem()
+        media_type = response.headers.get("content-type", "").partition(";")[0].strip().lower()
+        text = body.decode("utf-8", "replace").strip() if media_type == "text/plain" else None
+        problem = _Problem(detail=text)
     try:
         errors = _problem_errors.validate_python(problem.errors)
     except ValidationError:
