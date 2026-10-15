@@ -17,7 +17,7 @@ from grpc_reflection.v1alpha.reflection_pb2 import (
 )
 
 from synthient import grpcschema
-from synthient.grpcschema import SchemaError, explain, fetch, normalize_endpoint
+from synthient.grpcschema import SchemaError, _normalize_endpoint, explain, fetch
 
 HEALTH = health_pb2.DESCRIPTOR.services_by_name["Health"].full_name
 
@@ -73,8 +73,8 @@ def test_fetch_options(
     monkeypatch.delenv("SYNTHIENT_API_KEY", raising=False)
     address, recorder = start_server()
 
-    schema = fetch(endpoint=f"grpc://{address}", plaintext=True, include_reflection=True)
-    assert reflection.SERVICE_NAME in schema.symbols
+    schema = fetch(endpoint=f"grpc://{address}", plaintext=True, symbols=[reflection.SERVICE_NAME])
+    assert schema.symbols == [reflection.SERVICE_NAME]
     assert recorder.keys.get(timeout=1) == []
 
     request = health_pb2.HealthCheckRequest.DESCRIPTOR.full_name
@@ -112,12 +112,12 @@ def test_fetch_timeout(start_server: Callable[..., tuple[str, KeyRecorder]]) -> 
     ],
 )
 def test_normalize_endpoint(raw: str, endpoint: str, host: str) -> None:
-    assert normalize_endpoint(raw) == (endpoint, host)
+    assert _normalize_endpoint(raw) == (endpoint, host)
 
 
 def test_normalize_endpoint_empty() -> None:
     with pytest.raises(ValueError, match="empty gRPC endpoint"):
-        normalize_endpoint("grpc://")
+        _normalize_endpoint("grpc://")
 
 
 @pytest.mark.parametrize(
@@ -139,7 +139,7 @@ def test_normalize_endpoint_empty() -> None:
 )
 def test_normalize_endpoint_invalid(endpoint: str) -> None:
     with pytest.raises(ValueError, match="invalid gRPC endpoint"):
-        normalize_endpoint(endpoint)
+        _normalize_endpoint(endpoint)
 
 
 def test_reflection_unexpected_eof() -> None:
@@ -147,7 +147,7 @@ def test_reflection_unexpected_eof() -> None:
     responses: Iterator[ServerReflectionResponse] = iter(())
     reflector = grpcschema._Reflector(requests, responses, "localhost")
     with pytest.raises(SchemaError, match="stream ended"):
-        reflector.list_services(include_reflection=False)
+        reflector.list_services()
 
 
 def test_reflection_invalid_descriptor() -> None:

@@ -27,7 +27,7 @@ except ImportError as _error:
 from synthient._base import resolve_api_key
 from synthient._errors import SynthientError
 
-__all__ = ["DEFAULT_ENDPOINT", "Schema", "SchemaError", "explain", "fetch", "normalize_endpoint"]
+__all__ = ["DEFAULT_ENDPOINT", "Schema", "SchemaError", "explain", "fetch"]
 
 DEFAULT_ENDPOINT = "grpc.synthient.com:443"
 """The address of the Synthient gRPC API."""
@@ -86,7 +86,6 @@ def fetch(
     *,
     endpoint: str = DEFAULT_ENDPOINT,
     plaintext: bool = False,
-    include_reflection: bool = False,
     symbols: Iterable[str] = (),
     timeout: float | None = 30.0,
 ) -> Schema:
@@ -98,16 +97,15 @@ def fetch(
         endpoint: The server as host:port, a bare host (port 443 is assumed), or a
             grpc:// or https:// URL.
         plaintext: Disables TLS, for local development servers.
-        include_reflection: Includes the reflection service itself when listing services.
         symbols: Fully qualified service or message names to resolve. Empty resolves
-            every service the server lists.
+            every service the server lists except gRPC reflection.
         timeout: Seconds allowed for the whole fetch, or None for no limit.
 
     Raises:
         SchemaError: If reflection fails. ``explain`` describes common causes.
         ValueError: If the endpoint is invalid.
     """
-    endpoint, host = normalize_endpoint(endpoint)
+    endpoint, host = _normalize_endpoint(endpoint)
     api_key = resolve_api_key(api_key)
     metadata = (("x-api-key", api_key),) if api_key else ()
     options = [("grpc.max_receive_message_length", _MAX_MESSAGE_SIZE)]
@@ -128,7 +126,7 @@ def fetch(
         try:
             resolved = list(dict.fromkeys(s.strip() for s in symbols if s.strip()))
             if not resolved:
-                resolved = reflector.list_services(include_reflection=include_reflection)
+                resolved = reflector.list_services()
             if not resolved:
                 raise SchemaError("server lists no services")
 
@@ -159,7 +157,7 @@ def fetch(
     )
 
 
-def normalize_endpoint(raw: str) -> tuple[str, str]:
+def _normalize_endpoint(raw: str) -> tuple[str, str]:
     """Convert ``raw`` to host:port form and return it with the host name for TLS.
 
     It accepts host:port, a bare host (port 443 is assumed), and grpc:// or https://
@@ -226,16 +224,12 @@ class _Reflector:
             raise SchemaError(error.error_message, code)
         return response
 
-    def list_services(self, *, include_reflection: bool) -> list[str]:
+    def list_services(self) -> list[str]:
         response = self.do(ServerReflectionRequest(list_services=""))
         if not response.HasField("list_services_response"):
             raise SchemaError("reflection response has no service list")
         names = (service.name.strip() for service in response.list_services_response.service)
-        return sorted(
-            name
-            for name in names
-            if name and (include_reflection or not name.startswith("grpc.reflection."))
-        )
+        return sorted(name for name in names if name and not name.startswith("grpc.reflection."))
 
     def files(self, request: ServerReflectionRequest) -> list[bytes]:
         response = self.do(request)
