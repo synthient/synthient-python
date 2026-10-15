@@ -1,9 +1,8 @@
 from __future__ import annotations
 
+import json
 from http import HTTPStatus
-from typing import TYPE_CHECKING, ClassVar
-
-from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError
+from typing import TYPE_CHECKING, Any
 
 from synthient._retry import parse_retry_after
 
@@ -68,42 +67,36 @@ class APIError(SynthientError):
         self.retry_after: float | None = retry_after
 
 
-class _Problem(BaseModel):
-    model_config: ClassVar[ConfigDict] = ConfigDict(strict=True)
-
-    type: str | None = None
-    title: str | None = None
-    detail: str | None = None
-    instance: str | None = None
-    errors: object = None
-
-
-_problem_errors = TypeAdapter(dict[str, list[str]], config=ConfigDict(strict=True))
-
-
 def api_error(response: httpx.Response, body: bytes) -> APIError:
     """Build an APIError from a response and its bounded body.
 
     Plain text, HTML, and malformed problem details still keep the status, request ID,
-    and Retry-After, and a plain-text body becomes the detail. A malformed ``errors``
-    member is ignored on its own.
+    and Retry-After, and a plain-text body becomes the detail. A member of the wrong type
+    is ignored without affecting the others.
     """
     try:
-        problem = _Problem.model_validate_json(body)
-    except ValidationError:
+        problem: dict[str, Any] | None = json.loads(body)
+    except (ValueError, RecursionError):
+        problem = None
+    if not isinstance(problem, dict):
         media_type = response.headers.get("content-type", "").partition(";")[0].strip().lower()
-        text = body.decode("utf-8", "replace").strip() if media_type == "text/plain" else None
-        problem = _Problem(detail=text)
-    try:
-        errors = _problem_errors.validate_python(problem.errors)
-    except ValidationError:
+        text = body.decode("utf-8", "replace").strip() if media_type == "text/plain" else ""
+        problem = {"detail": text}
+    strings = {name: value for name, value in problem.items() if isinstance(value, str)}
+    errors: dict[str, list[str]] | None = problem.get("errors")
+    if not isinstance(errors, dict) or not all(
+        isinstance(field, str)
+        and isinstance(messages, list)
+        and all(isinstance(message, str) for message in messages)
+        for field, messages in errors.items()
+    ):
         errors = {}
     return APIError(
         status_code=response.status_code,
-        type=problem.type or "",
-        title=problem.title or "",
-        detail=problem.detail or "",
+        type=strings.get("type", ""),
+        title=strings.get("title", ""),
+        detail=strings.get("detail", ""),
         errors=errors,
-        request_id=response.headers.get("x-request-id") or problem.instance or "",
+        request_id=response.headers.get("x-request-id") or strings.get("instance", ""),
         retry_after=parse_retry_after(response.headers.get("retry-after")),
     )

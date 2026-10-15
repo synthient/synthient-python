@@ -57,6 +57,14 @@ REQUEST_ID = "0123456789abcdef0123456789abcdef"
             {"status_code": 400, "title": "", "detail": ""},
         ),
         (
+            httpx.Response(400, json={"type": 7, "title": "Bad Request", "detail": "bad cursor"}),
+            {"status_code": 400, "type": "", "title": "Bad Request", "detail": "bad cursor"},
+        ),
+        (
+            httpx.Response(422, json={"title": "Unprocessable Entity", "errors": {"ip": [7]}}),
+            {"status_code": 422, "title": "Unprocessable Entity", "errors": {}},
+        ),
+        (
             httpx.Response(401, text="401 invalid api key\n"),
             {"status_code": 401, "title": "", "detail": "401 invalid api key", "request_id": ""},
         ),
@@ -65,6 +73,10 @@ REQUEST_ID = "0123456789abcdef0123456789abcdef"
                 502, content=b"<html>Bad Gateway</html>", headers={"content-type": "text/html"}
             ),
             {"status_code": 502, "title": "", "detail": ""},
+        ),
+        (
+            httpx.Response(502, content=b"[" * 30_000 + b"]" * 30_000),
+            {"status_code": 502, "detail": ""},
         ),
         (
             httpx.Response(429, headers={"retry-after": "7"}),
