@@ -337,8 +337,9 @@ class Export(_Model):
     id: str
     """Identifies the export as "YYYY-MM-DD", "YYYY-MM-DD/H", or "latest".
 
-    Pass it to ``download``. The first page of a listing can include "latest", an alias for
-    the newest hourly export that is also listed under its own ID.
+    Pass it to ``download``. On the first page of a listing, the newest hourly export is
+    listed only as "latest", a moving alias for the freshest export; its ``date`` and
+    ``hour`` give its stable ID.
     """
     kind: str
     """Either "hourly" or "daily"."""

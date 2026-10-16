@@ -181,9 +181,10 @@ class Client:
     Reuse one client for many requests; it pools connections and is safe to share across
     threads. Close it with ``close()`` or a ``with`` block.
 
-    Requests that cost no credits are retried on 429, 500, 502, 503, and 504 responses and
-    on transient connection failures. Billed lookups are retried only on 429, which the API
-    returns before doing any work. Retries back off exponentially with jitter and honor
+    Account and feed requests are retried on 429, 500, 502, 503, and 504 responses and on
+    transient connection failures before a response arrives. Lookups and ``health()`` are
+    retried only on 429, which the API returns before doing any work. The storage request
+    of ``download()`` is not retried. Retries back off exponentially with jitter and honor
     Retry-After up to one minute. A 429 without Retry-After is not retried, because it
     means the key's monthly request budget is spent or too many of its streams are open.
 
@@ -384,7 +385,8 @@ class Feed(Generic[ModelT]):
     ) -> Iterator[Export]:
         """Iterate over the feed's exports, newest first, fetching pages lazily.
 
-        The newest hourly export can appear twice, under "latest" and under its own ID.
+        On the first page, the newest hourly export is listed only as "latest", a moving alias
+        for the freshest export. Its ``date`` and ``hour`` give its stable ID.
 
         Raises:
             SynthientError: If the API repeats a cursor, after that page's exports.
@@ -426,6 +428,9 @@ class Feed(Generic[ModelT]):
         Raises:
             APIError: If the API or the storage host returns an error status. A daily
                 export that is still being built returns 404 with ``retry_after`` set.
+            SynthientError: If a redirect to the export is missing or invalid.
+            httpx.HTTPError: While the body is read, such as ``httpx.ReadTimeout``. Body
+                reads are plain httpx and are not wrapped.
         """
         response = self._transport.open_download(self.download_url(export))
         try:

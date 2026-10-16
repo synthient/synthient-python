@@ -377,7 +377,8 @@ class AsyncFeed(Generic[ModelT]):
     ) -> AsyncIterator[Export]:
         """Iterate over the feed's exports, newest first, fetching pages lazily.
 
-        The newest hourly export can appear twice, under "latest" and under its own ID.
+        On the first page, the newest hourly export is listed only as "latest", a moving alias
+        for the freshest export. Its ``date`` and ``hour`` give its stable ID.
 
         Raises:
             SynthientError: If the API repeats a cursor, after that page's exports.
@@ -409,6 +410,12 @@ class AsyncFeed(Generic[ModelT]):
         """Download an export's parquet file and yield the streaming httpx response.
 
         Read the body with ``response.aiter_bytes()``. See ``Feed.download``.
+
+        Raises:
+            APIError: If the API or the storage host returns an error status.
+            SynthientError: If a redirect to the export is missing or invalid.
+            httpx.HTTPError: While the body is read, such as ``httpx.ReadTimeout``. Body
+                reads are plain httpx and are not wrapped.
         """
         response = await self._transport.open_download(await self.download_url(export))
         try:

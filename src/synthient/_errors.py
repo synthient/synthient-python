@@ -11,13 +11,19 @@ if TYPE_CHECKING:
 
 
 class SynthientError(Exception):
-    """Base class for the errors the SDK raises. Invalid arguments raise ValueError instead."""
+    """Base class for the errors the SDK raises for failed requests and unusable responses.
+
+    A response the SDK can't use, such as a body that doesn't match the expected shape or an
+    invalid export redirect, raises it directly. Invalid arguments raise ValueError or
+    TypeError instead.
+    """
 
 
 class APIConnectionError(SynthientError):
-    """The request got no response, for example because of a DNS, connection, or TLS failure.
+    """The connection failed, or broke while an API response or stream was being read.
 
-    The underlying httpx exception is chained as ``__cause__``.
+    Causes include DNS, connection, and TLS failures. The underlying httpx exception is
+    chained as ``__cause__``.
     """
 
 
