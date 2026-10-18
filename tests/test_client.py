@@ -43,6 +43,11 @@ def test_non_printable_api_key(api_key: str) -> None:
     assert "secret" not in str(caught.value)
 
 
+def test_api_key_must_be_a_string() -> None:
+    with pytest.raises(TypeError, match="api_key must be a string"):
+        Client(12345)  # pyright: ignore[reportArgumentType]
+
+
 @pytest.mark.parametrize(
     "base_url",
     [

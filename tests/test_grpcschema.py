@@ -87,6 +87,11 @@ def test_fetch_non_printable_api_key() -> None:
         fetch("sk_live\nsecret", endpoint="127.0.0.1:1", plaintext=True)
 
 
+def test_fetch_api_key_must_be_a_string() -> None:
+    with pytest.raises(TypeError, match="api_key must be a string"):
+        fetch(12345, endpoint="127.0.0.1:1", plaintext=True)  # pyright: ignore[reportArgumentType]
+
+
 def test_fetch_unknown_symbol(start_server: Callable[..., tuple[str, KeyRecorder]]) -> None:
     address, _ = start_server()
     with pytest.raises(SchemaError) as caught:

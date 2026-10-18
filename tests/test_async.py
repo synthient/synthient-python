@@ -46,6 +46,11 @@ class AsyncChunkStream(httpx.AsyncByteStream):
         self.closed = True
 
 
+async def test_api_key_must_be_a_string() -> None:
+    with pytest.raises(TypeError, match="api_key must be a string"):
+        AsyncClient(12345)  # pyright: ignore[reportArgumentType]
+
+
 async def test_lookups() -> None:
     requests: list[httpx.Request] = []
 

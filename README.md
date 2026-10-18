@@ -344,7 +344,7 @@ except synthient.APIError as error:
 - `APIConnectionError`: the connection failed, such as after a DNS, connection, or TLS failure, or broke while an API response or stream was being read. The httpx exception is chained as `__cause__`.
 - `APITimeoutError`: a subclass of `APIConnectionError` for a request that timed out.
 - `grpcschema.SchemaError`: fetching the [gRPC schema](#grpc-schema) failed.
-- `ValueError`: an argument is invalid, such as a missing API key or a malformed IP address. No request is sent. An IP address, domain, or export ID of the wrong type raises `TypeError` instead.
+- `ValueError`: an argument is invalid, such as a missing API key or a malformed IP address. No request is sent. An API key, IP address, domain, or export ID of the wrong type raises `TypeError` instead.
 - `RuntimeError`: the client was used after `close()` or `aclose()`.
 
 <details><summary>Status codes</summary>
