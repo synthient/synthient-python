@@ -14,7 +14,7 @@ def main() -> None:
         schema = grpcschema.fetch()
     except grpcschema.SchemaError as error:
         explanation = grpcschema.explain(error)
-        sys.exit(f"{explanation}: {error}" if explanation else str(error))
+        sys.exit(f"{explanation} {error}" if explanation else str(error))
 
     print("endpoint:", schema.endpoint)
     for symbol in schema.symbols:
