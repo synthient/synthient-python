@@ -342,7 +342,7 @@ class Feed(Generic[ModelT]):
         """Open the feed's real-time stream and yield an iterator over its events.
 
         The connection opens when the ``with`` block is entered and closes when it exits,
-        even after a ``break``. The server ends streams after about 30 minutes, which
+        even after a ``break``. The server ends streams after up to 30 minutes, which
         ends the iteration without an error; open a new stream to keep consuming.
 
         Raises:
