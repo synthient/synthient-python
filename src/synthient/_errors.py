@@ -13,9 +13,8 @@ if TYPE_CHECKING:
 class SynthientError(Exception):
     """Base class for the errors the SDK raises for failed requests and unusable responses.
 
-    A response the SDK can't use, such as a body that doesn't match the expected shape or an
-    invalid export redirect, raises it directly. Invalid arguments raise ValueError or
-    TypeError instead.
+    It is raised directly for an unusable response, such as a body of the wrong shape or
+    an invalid export redirect. Invalid arguments raise ValueError or TypeError instead.
     """
 
 

@@ -272,40 +272,18 @@ class AsyncClient:
         return await self._transport.request(Request(path="/account/me"), Account)
 
     async def health(self) -> None:
-        """Check that the API is available.
-
-        Raises:
-            APIError: If the API reports a problem. A 503 is not retried.
-        """
+        """Check that the API is available. See ``Client.health``."""
         # A 503 from /health is the answer, so only 429 is retried.
         await self._transport.request(
             Request(path="/health", policy=RetryPolicy.RATE_LIMIT), HealthResponse
         )
 
     async def lookup_ip(self, ip: str | IPv4Address | IPv6Address) -> IPInfo:
-        """Return intelligence for an IPv4 or IPv6 address.
-
-        Each lookup costs one credit. Failed lookups are not billed.
-
-        Raises:
-            ValueError: If ``ip`` is not a valid address. No request is sent.
-            APIError: With status 422 if ``ip`` is a private or reserved address.
-        """
+        """Return intelligence for an IPv4 or IPv6 address. See ``Client.lookup_ip``."""
         return await self._transport.request(lookup_ip_request(ip), IPInfo)
 
     async def lookup_ips(self, ips: Iterable[str | IPv4Address | IPv6Address]) -> list[IPInfo]:
-        """Look up as many as 1000 addresses in one request.
-
-        The API bills ceil(n * 0.9) credits for n distinct usable addresses. Private and
-        reserved addresses are skipped without a result, and duplicates collapse into one,
-        so match results by IP rather than by position. Results follow the order in which
-        each address first appears. An empty list returns [] without a request.
-
-        Raises:
-            ValueError: If an address is invalid or there are more than 1000. No request
-                is sent.
-            APIError: With status 422 if every address is private or reserved.
-        """
+        """Look up as many as 1000 addresses in one request. See ``Client.lookup_ips``."""
         addresses = list(ips)
         if not addresses:
             return []
@@ -313,15 +291,7 @@ class AsyncClient:
         return batch.results
 
     async def lookup_domain(self, domain: str, *, limit: int | None = None) -> DomainInfo:
-        """Return the honeypot traffic observed for a domain.
-
-        Each lookup costs one credit, and the API allows 20 per minute per team. A domain
-        that has never been observed returns ``status`` "inactive" with zeroed stats.
-
-        Args:
-            domain: The domain. Internationalized names must be sent in Punycode.
-            limit: Caps the number of recent events, from 1 to 1000. The API default is 50.
-        """
+        """Return the honeypot traffic observed for a domain. See ``Client.lookup_domain``."""
         return await self._transport.request(lookup_domain_request(domain, limit), DomainInfo)
 
 
@@ -337,8 +307,7 @@ class AsyncFeed(Generic[ModelT]):
     async def stream(self) -> AsyncGenerator[AsyncIterator[ModelT], None]:
         """Open the feed's real-time stream and yield an async iterator over its events.
 
-        The connection opens when the ``async with`` block is entered and closes when it
-        exits, even after a ``break``. See ``Feed.stream``.
+        See ``Feed.stream``.
         """
         response = await self._transport.open_stream(self._path)
         events = self._events(response)
@@ -375,14 +344,7 @@ class AsyncFeed(Generic[ModelT]):
     async def iter_exports(
         self, *, limit: int | None = None, cursor: str | None = None
     ) -> AsyncIterator[Export]:
-        """Iterate over the feed's exports, newest first, fetching pages lazily.
-
-        On the first page, the newest hourly export is listed only as "latest", a moving alias
-        for the freshest export. Its ``date`` and ``hour`` give its stable ID.
-
-        Raises:
-            SynthientError: If the API repeats a cursor, after that page's exports.
-        """
+        """Iterate over the feed's exports, newest first. See ``Feed.iter_exports``."""
         seen = {cursor}
         while True:
             page = await self.list_exports(limit=limit, cursor=cursor)
@@ -410,12 +372,6 @@ class AsyncFeed(Generic[ModelT]):
         """Download an export's parquet file and yield the streaming httpx response.
 
         Read the body with ``response.aiter_bytes()``. See ``Feed.download``.
-
-        Raises:
-            APIError: If the API or the storage host returns an error status.
-            SynthientError: If a redirect to the export is missing or invalid.
-            httpx.HTTPError: While the body is read, such as ``httpx.ReadTimeout``. Body
-                reads are plain httpx and are not wrapped.
         """
         response = await self._transport.open_download(await self.download_url(export))
         try:

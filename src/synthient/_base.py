@@ -248,11 +248,7 @@ def list_exports_request(feed_path: str, limit: int | None, cursor: str | None) 
 
 
 def export_path(export: str | date) -> str:
-    """Return the URL path of an export ID.
-
-    ``export`` is "latest", a day as "YYYY-MM-DD" or a ``date``, or an hour as
-    "YYYY-MM-DD/H" or a timezone-aware ``datetime``. Export.id values work as they are.
-    """
+    """Return the URL path of an export ID in any form ``Feed`` accepts."""
     if isinstance(export, datetime):
         if export.tzinfo is None:
             raise ValueError("export datetime must be timezone-aware")

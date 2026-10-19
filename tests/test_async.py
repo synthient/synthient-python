@@ -134,8 +134,8 @@ async def test_cancel_during_backoff() -> None:
     assert len(requests) == 1
 
 
-# Under Trio, httpx's own nested async generators warn when a stream is left early. The
-# SDK closes the response itself, which the stream's closed flag below verifies.
+# Under Trio, httpx's nested async generators warn when a stream is left early. The
+# body.closed assert shows the SDK still closes the response.
 @pytest.mark.filterwarnings("ignore:Async generator 'httpx\\.:ResourceWarning")
 async def test_stream() -> None:
     record = json.dumps({"ip": "203.0.113.7", "timestamp": 1778187600}).encode()

@@ -257,10 +257,7 @@ class DomainInfo(_Model):
     domain: str
     """The domain that was looked up."""
     status: str
-    """"active" when the domain had events in the last 24 hours, otherwise "inactive".
-
-    A domain that has never been observed is "inactive" with zeroed stats.
-    """
+    """"active" when the domain had events in the last 24 hours, otherwise "inactive"."""
     stats: DomainStats
     """Aggregate event counts."""
     unique_ips: UniqueIPs
@@ -337,9 +334,8 @@ class Export(_Model):
     id: str
     """Identifies the export as "YYYY-MM-DD", "YYYY-MM-DD/H", or "latest".
 
-    Pass it to ``download``. On the first page of a listing, the newest hourly export is
-    listed only as "latest", a moving alias for the freshest export; its ``date`` and
-    ``hour`` give its stable ID.
+    Pass it to ``download``. On a listing's first page, the newest hourly export has the
+    ID "latest"; its ``date`` and ``hour`` give its stable ID.
     """
     kind: str
     """Either "hourly" or "daily"."""

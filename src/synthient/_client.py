@@ -192,9 +192,9 @@ class Client:
         api_key: The API key. Defaults to the SYNTHIENT_API_KEY environment variable.
         base_url: The API base URL, including the version path.
         max_retries: How many times a failed request is retried. Zero disables retries.
-        timeout: The httpx timeout for every request. The default waits up to 10 seconds
-            to connect and 60 seconds for each read, which also suits streams because the
-            API sends a keepalive line every 15 seconds.
+        timeout: The httpx timeout for every request. The default allows 10 seconds to
+            connect and 60 seconds per read, which suits streams because they send a
+            keepalive line every 15 seconds.
         http_client: An httpx client to send requests with, for proxies, TLS, or
             transports. The SDK never closes or modifies it. API redirects are disabled.
             Storage requests exclude its default headers, cookies, query parameters,
@@ -328,8 +328,8 @@ class Feed(Generic[ModelT]):
 
     Export IDs are a UTC day as "YYYY-MM-DD" or a ``date``, a UTC hour as "YYYY-MM-DD/H"
     or a timezone-aware ``datetime``, or "latest" for the freshest export: the newest
-    hourly during the day, and the daily rollup once the day's hourly exports are rolled
-    up. ``Export.id`` values can be passed as they are.
+    hourly one, or the day's daily rollup once it is built. ``Export.id`` values can be
+    passed as they are.
     """
 
     def __init__(self, transport: Transport, path: str, event: type[ModelT]) -> None:
@@ -384,9 +384,6 @@ class Feed(Generic[ModelT]):
         self, *, limit: int | None = None, cursor: str | None = None
     ) -> Iterator[Export]:
         """Iterate over the feed's exports, newest first, fetching pages lazily.
-
-        On the first page, the newest hourly export is listed only as "latest", a moving alias
-        for the freshest export. Its ``date`` and ``hour`` give its stable ID.
 
         Raises:
             SynthientError: If the API repeats a cursor, after that page's exports.

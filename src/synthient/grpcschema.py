@@ -160,8 +160,7 @@ def fetch(
 def _normalize_endpoint(raw: str) -> tuple[str, str]:
     """Convert ``raw`` to host:port form and return it with the host name for TLS.
 
-    It accepts host:port, a bare host (port 443 is assumed), and grpc:// or https://
-    URLs. An empty ``raw`` uses DEFAULT_ENDPOINT.
+    An empty ``raw`` uses DEFAULT_ENDPOINT.
     """
     raw = raw.strip() or DEFAULT_ENDPOINT
     try:

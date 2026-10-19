@@ -52,10 +52,8 @@ def parse_retry_after(value: str | None) -> float | None:
 def retry_delay(policy: RetryPolicy, response: httpx.Response, attempt: int) -> float | None:
     """Return how long to wait before retrying ``response``, or None to stop.
 
-    The delay honors Retry-After as a minimum. A server that asks for more than a
-    minute gets no retry, so the caller sees the error and its ``retry_after`` instead.
-    A 429 without Retry-After is not retried: the rate limiter always sends one, so its
-    absence means a spent monthly budget or too many concurrent streams.
+    Retry-After is a minimum, and one over a minute stops retries. A 429 without
+    Retry-After is not retried, since the rate limiter always sends one.
     """
     status = response.status_code
     if policy is RetryPolicy.RATE_LIMIT and status != HTTPStatus.TOO_MANY_REQUESTS:

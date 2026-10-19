@@ -1,6 +1,5 @@
 """Print proxy sightings from the real-time proxies feed until interrupted, reconnecting
-whenever the server closes the stream. It needs an API key with the PROXY_FIREHOSE scope
-and stops if the key is rejected or lacks the scope.
+whenever the server closes the stream. It needs an API key with the PROXY_FIREHOSE scope.
 
     SYNTHIENT_API_KEY=... uv run examples/stream.py
 """
@@ -23,7 +22,7 @@ def main() -> None:
                 if isinstance(error, synthient.APIError) and error.status_code in {401, 403}:
                     raise
                 print("stream:", error)
-                # Pause after a failure so a failing stream doesn't reconnect in a tight loop.
+                # Avoid reconnecting in a tight loop.
                 time.sleep(2)
 
 
