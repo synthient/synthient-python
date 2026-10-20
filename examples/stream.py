@@ -22,7 +22,7 @@ def main() -> None:
                 if isinstance(error, synthient.APIError) and error.status_code in {401, 403}:
                     raise
                 print("stream:", error)
-                # Avoid reconnecting in a tight loop.
+                # Stream connections are limited to 30 per minute per team.
                 time.sleep(2)
 
 

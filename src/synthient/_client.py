@@ -66,7 +66,7 @@ class Transport(BaseTransport):
         self.closed = True
 
     def send(self, request: Request) -> httpx.Response:
-        """Send a request with retries and return the unread response."""
+        """Return the unread response, which the caller must close."""
         attempt = 0
         while True:
             can_retry = attempt < self.config.max_retries
@@ -95,7 +95,7 @@ class Transport(BaseTransport):
             attempt += 1
 
     def read(self, response: httpx.Response, limit: int) -> bytes:
-        """Read at most ``limit + 1`` bytes of a response body."""
+        """Read at most ``limit + 1`` bytes, so callers can tell when a body exceeds ``limit``."""
         body = bytearray()
         for chunk in response.iter_bytes():
             body += chunk[: limit + 1 - len(body)]
@@ -189,8 +189,8 @@ class Client:
     means the key's monthly request budget is spent or too many of its streams are open.
 
     Args:
-        api_key: The API key. Defaults to the SYNTHIENT_API_KEY environment variable.
-        base_url: The API base URL, including the version path.
+        api_key: Defaults to the SYNTHIENT_API_KEY environment variable.
+        base_url: Must include the version path, such as "/api/v4".
         max_retries: How many times a failed request is retried. Zero disables retries.
         timeout: The httpx timeout for every request. The default allows 10 seconds to
             connect and 60 seconds per read, which suits streams because they send a
@@ -256,7 +256,10 @@ class Client:
         self.helios_adb = Feed(self._transport, "/feeds/helio/adb", HeliosADBEvent)
 
     def close(self) -> None:
-        """Close the connection pool. Calling it again does nothing."""
+        """Close the connection pool, unless it belongs to ``http_client``.
+
+        Calling it again does nothing, and later requests raise ``RuntimeError``.
+        """
         self._transport.close()
 
     def __enter__(self) -> Self:
@@ -316,7 +319,7 @@ class Client:
         that has never been observed returns ``status`` "inactive" with zeroed stats.
 
         Args:
-            domain: The domain. Internationalized names must be sent in Punycode.
+            domain: Internationalized names must be sent in Punycode.
             limit: Caps the number of recent events, from 1 to 1000. The API default is 50.
         """
         return self._transport.request(lookup_domain_request(domain, limit), DomainInfo)

@@ -68,7 +68,6 @@ MODELS: dict[str, type[BaseModel]] = {
     "TLSExtension": synthient.TLSExtension,
 }
 
-# Schemas the SDK deliberately does not model, with the reason.
 UNMODELED = {
     "IpBatchRequest": "lookup_ips encodes the request body",
     "ProblemDetails": "parsed leniently into APIError",

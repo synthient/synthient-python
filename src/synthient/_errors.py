@@ -73,11 +73,9 @@ class APIError(SynthientError):
 
 
 def api_error(response: httpx.Response, body: bytes) -> APIError:
-    """Build an APIError from a response and its bounded body.
-
-    Plain text, HTML, and malformed problem details still keep the status, request ID,
-    and Retry-After, and a plain-text body becomes the detail. A member of the wrong type
-    is ignored without affecting the others.
+    """The caller bounds ``body``. Plain text, HTML, and malformed problem details still
+    keep the status, request ID, and Retry-After, and a plain-text body becomes the
+    detail. A member of the wrong type is ignored without affecting the others.
     """
     try:
         problem: dict[str, Any] | None = json.loads(body)

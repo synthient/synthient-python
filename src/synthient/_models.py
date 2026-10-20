@@ -51,9 +51,10 @@ def _ip_address(value: object) -> IPv4Address | IPv6Address:
 IPAddress = Annotated[
     IPv4Address | IPv6Address, PlainValidator(_ip_address), PlainSerializer(str, when_used="json")
 ]
-"""An IPv4 or IPv6 address, sent by the API as a string."""
 
 
+# Give every public model a docstring. Without one, help() and inspect.getdoc fall back
+# to the long pydantic BaseModel docstring.
 class _Model(BaseModel):
     model_config: ClassVar[ConfigDict] = ConfigDict(
         frozen=True,
@@ -123,7 +124,7 @@ class Device(_Model):
 
 
 class Intelligence(_Model):
-    """Synthient's assessment of an address."""
+    """The risk score and the proxy, VPN, and device observations for an address."""
 
     risk_score: int
     """The risk of the address, from 0 to 100."""
@@ -140,7 +141,6 @@ class Intelligence(_Model):
     An empty list does not mean the address is clean.
     """
     devices: list[Device]
-    """The device types seen behind the address."""
 
 
 class IPInfo(_Model):
@@ -150,12 +150,9 @@ class IPInfo(_Model):
     """
 
     ip: IPAddress
-    """The address that was looked up."""
     network: Network | None = None
-    """The network that announces the address."""
     location: Location | None = None
     intelligence: Intelligence | None = None
-    """The risk score and the proxy, VPN, and device observations for the address."""
 
 
 class IPBatchResponse(_Model):
@@ -174,7 +171,7 @@ class DomainStats(_Model):
 
 
 class UniqueIPs(_Model):
-    """The distinct source addresses seen for a domain."""
+    """Counts of the distinct source addresses seen for a domain."""
 
     value_24h: int
     value_30d: int
@@ -255,21 +252,16 @@ class DomainInfo(_Model):
     """The honeypot traffic Synthient has observed for a domain."""
 
     domain: str
-    """The domain that was looked up."""
     status: str
     """"active" when the domain had events in the last 24 hours, otherwise "inactive"."""
     stats: DomainStats
-    """Aggregate event counts."""
     unique_ips: UniqueIPs
-    """The distinct source addresses."""
     time_series: list[TimeSeriesPoint]
     """Daily event counts."""
     top_asn: ASNCount | None = None
     """The network that sent the most events, or None when there are none."""
     top_subdomains: list[SubdomainCount]
-    """The most targeted subdomains."""
     top_ports: list[PortCount]
-    """The most targeted ports."""
     geo_distribution: list[CountryCount]
     """Event counts by source country."""
     hour_dow_heatmap: list[list[int]]
@@ -278,7 +270,6 @@ class DomainInfo(_Model):
     Rows are days of the week from Monday (0) to Sunday (6), and columns are hours of the day.
     """
     activity_stats: ActivityStats
-    """The hourly activity pattern."""
     recent_events: list[DomainEvent]
     """The most recent events, capped by the ``limit`` passed to ``lookup_domain``."""
 
@@ -323,9 +314,7 @@ class Account(_Model):
     New values may be added.
     """
     lookup_quota: LookupQuota
-    """The remaining lookup credits."""
     api_key: AccountAPIKey | None = None
-    """The API key used for the request."""
 
 
 class Export(_Model):
@@ -378,7 +367,7 @@ class ParquetSchema(_Model):
 
 
 class ExportMeta(_Model):
-    """A parquet export's metadata, without its contents."""
+    """A parquet export's metadata."""
 
     id: str
     stream: str
@@ -397,7 +386,6 @@ class ExportMeta(_Model):
     """The hex-encoded SHA-256 of the parquet file."""
     created_at: UnixTime
     parquet_schema: ParquetSchema = Field(alias="schema")
-    """The parquet columns."""
 
 
 class ProxyEvent(_Model):
@@ -491,7 +479,6 @@ class HeliosMeta(_Model):
     server: str | None = None
     """The sensor that captured the traffic."""
     pool_id: str | None = None
-    """The sensor pool."""
     provider: str | None = None
     """The proxy service the traffic arrived through."""
 
@@ -520,9 +507,7 @@ class HeliosHTTPEvent(_Model):
     protocol: str
     """Always "http"."""
     meta: HeliosMeta
-    """The capturing sensor."""
     details: HTTPRequestDetails | None = None
-    """The parsed request."""
     raw: str | None = None
     """The base64-encoded raw request."""
 
@@ -602,7 +587,6 @@ class HeliosHTTPSEvent(_Model):
     protocol: str
     """Always "https"."""
     meta: HeliosMeta
-    """The capturing sensor."""
     details: TLSClientHello | None = None
     """The parsed ClientHello, or None when the sensor could not parse the handshake."""
     raw: str | None = None
@@ -626,7 +610,6 @@ class HeliosDNSEvent(_Model):
     protocol: str
     """Always "dns"."""
     meta: HeliosMeta
-    """The capturing sensor."""
 
 
 class HeliosADBEvent(_Model):

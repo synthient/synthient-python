@@ -24,7 +24,6 @@ class RetryPolicy(enum.Enum):
 
 
 def backoff(attempt: int) -> float:
-    """Return the jittered delay before retry number ``attempt``, counted from zero."""
     delay = min(2.0 ** min(attempt, 5), MAX_BACKOFF)
     return delay * random.uniform(0.75, 1.25)  # noqa: S311
 
@@ -70,9 +69,7 @@ def retry_delay(policy: RetryPolicy, response: httpx.Response, attempt: int) -> 
 
 
 def is_transient(exc: httpx.TransportError) -> bool:
-    """Report whether a transport failure is worth retrying on a free request.
-
-    Certificate verification failures are permanent even though httpx reports them
+    """Certificate verification failures are permanent even though httpx reports them
     as connection errors.
     """
     if not isinstance(exc, httpx.TimeoutException | httpx.NetworkError | httpx.RemoteProtocolError):

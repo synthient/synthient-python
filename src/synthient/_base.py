@@ -37,10 +37,9 @@ ModelT = TypeVar("ModelT", bound=BaseModel)
 
 @dataclass(frozen=True)
 class ResponseMetadata:
-    """Describes one HTTP response from the Synthient API.
+    """The metadata of one API response, passed to a ``response_hook``.
 
     Attributes:
-        status_code: The HTTP status code.
         request_id: The X-Request-Id header, or "".
         headers: A copy of the response headers, including RateLimit-Limit,
             RateLimit-Remaining, and RateLimit-Reset when present. Headers can contain
@@ -110,8 +109,6 @@ class Config:
 
 
 class BaseTransport:
-    """Request building shared by the sync and async transports."""
-
     def __init__(self, config: Config) -> None:
         self.config: Config = config
         self.closed: bool = False
@@ -248,7 +245,6 @@ def list_exports_request(feed_path: str, limit: int | None, cursor: str | None) 
 
 
 def export_path(export: str | date) -> str:
-    """Return the URL path of an export ID in any form ``Feed`` accepts."""
     if isinstance(export, datetime):
         if export.tzinfo is None:
             raise ValueError("export datetime must be timezone-aware")
@@ -288,10 +284,6 @@ def connection_error(exc: httpx.TransportError) -> APIConnectionError:
 
 
 def storage_redirect(response: httpx.Response) -> httpx.URL:
-    """Validate a storage redirect before following it.
-
-    Only http(s) targets are allowed, and an https download never downgrades to http.
-    """
     location = response.headers.get("location", "").strip()
     if not response.has_redirect_location or not location:
         raise SynthientError("export redirect has no valid location")

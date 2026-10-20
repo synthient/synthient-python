@@ -30,7 +30,6 @@ from synthient._errors import SynthientError
 __all__ = ["DEFAULT_ENDPOINT", "Schema", "SchemaError", "explain", "fetch"]
 
 DEFAULT_ENDPOINT = "grpc.synthient.com:443"
-"""The address of the Synthient gRPC API."""
 
 _MAX_MESSAGE_SIZE = 32 << 20
 
@@ -158,10 +157,7 @@ def fetch(
 
 
 def _normalize_endpoint(raw: str) -> tuple[str, str]:
-    """Convert ``raw`` to host:port form and return it with the host name for TLS.
-
-    An empty ``raw`` uses DEFAULT_ENDPOINT.
-    """
+    """Return ``raw`` in host:port form, and its bare host for reflection requests."""
     raw = raw.strip() or DEFAULT_ENDPOINT
     try:
         if "://" in raw:

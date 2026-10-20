@@ -109,8 +109,6 @@ def redirect(location: str, status: int = 307) -> httpx.Response:
 
 
 class ChunkStream(httpx.SyncByteStream):
-    """A response body that yields fixed chunks and records whether it was closed."""
-
     def __init__(self, chunks: list[bytes], error: Exception | None = None) -> None:
         self.chunks = chunks
         self.error = error
@@ -130,7 +128,6 @@ class ChunkStream(httpx.SyncByteStream):
 
 @pytest.fixture
 def sleeps(monkeypatch: pytest.MonkeyPatch) -> list[float]:
-    """Replace retry waits with recorders so tests never sleep."""
     recorded: list[float] = []
 
     async def async_sleep(delay: float) -> None:
@@ -143,7 +140,6 @@ def sleeps(monkeypatch: pytest.MonkeyPatch) -> list[float]:
 
 @pytest.fixture
 def make_client(sleeps: list[float]) -> Iterator[MakeClient]:
-    """Build clients whose requests go to a MockTransport handler."""
     http_clients: list[httpx.Client] = []
 
     def make(handler: Handler, **options: Any) -> Client:

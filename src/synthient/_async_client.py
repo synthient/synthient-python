@@ -64,7 +64,7 @@ async def _close_http(
 
 
 class _ClosingStream(httpx.AsyncByteStream):
-    """Protect cleanup when HTTPX closes a fully consumed response itself."""
+    """Routes the close HTTPX makes itself after a full read through ``_close_http``."""
 
     def __init__(self, stream: httpx.AsyncByteStream) -> None:
         self._stream = stream
@@ -88,7 +88,7 @@ class AsyncTransport(BaseTransport):
         self.closed = True
 
     async def send(self, request: Request) -> httpx.Response:
-        """Send a request with retries and return the unread response."""
+        """Return the unread response, which the caller must close."""
         attempt = 0
         while True:
             can_retry = attempt < self.config.max_retries
@@ -119,7 +119,7 @@ class AsyncTransport(BaseTransport):
             attempt += 1
 
     async def read(self, response: httpx.Response, limit: int) -> bytes:
-        """Read at most ``limit + 1`` bytes of a response body."""
+        """Read at most ``limit + 1`` bytes, so callers can tell when a body exceeds ``limit``."""
         body = bytearray()
         chunks = cast(AsyncGenerator[bytes, None], response.aiter_bytes())
         async with aclosing(chunks):
@@ -258,7 +258,10 @@ class AsyncClient:
         self.helios_adb = AsyncFeed(self._transport, "/feeds/helio/adb", HeliosADBEvent)
 
     async def aclose(self) -> None:
-        """Close the connection pool. Calling it again does nothing."""
+        """Close the connection pool, unless it belongs to ``http_client``.
+
+        Calling it again does nothing, and later requests raise ``RuntimeError``.
+        """
         await self._transport.aclose()
 
     async def __aenter__(self) -> Self:
