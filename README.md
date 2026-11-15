@@ -22,29 +22,25 @@
 
 ## Table of Contents
 
-- [synthient-python](#synthient-python)
-  - [SDK Installation](#sdk-installation)
-  - [Requirements](#requirements)
-  - [API Keys](#api-keys)
-  - [Authentication](#authentication)
-  - [SDK Example Usage](#sdk-example-usage)
-  - [Available Resources and Operations](#available-resources-and-operations)
-  - [Streaming](#streaming)
-  - [Pagination](#pagination)
-  - [Downloads](#downloads)
-  - [Retries](#retries)
-  - [Timeouts](#timeouts)
-  - [Error Handling](#error-handling)
-  - [Server Selection](#server-selection)
-  - [Custom HTTP Client](#custom-http-client)
-  - [Debugging](#debugging)
-  - [gRPC Schema](#grpc-schema)
-- [Development](#development)
-  - [Maturity](#maturity)
-  - [Contributions](#contributions)
-  - [License](#license)
+- [Installation](#installation)
+- [Quick start](#quick-start)
+- [Authentication](#authentication)
+- [IP and domain lookups](#ip-and-domain-lookups)
+- [Account](#account)
+- [Feeds](#feeds)
+- [Asyncio and Trio](#asyncio-and-trio)
+- [Errors](#errors)
+- [Retries and timeouts](#retries-and-timeouts)
+- [Configuration](#configuration)
+- [Response metadata](#response-metadata)
+- [gRPC schema](#grpc-schema)
+- [Requirements](#requirements)
+- [Versioning](#versioning)
+- [Documentation](#documentation)
+- [Contributions](#contributions)
+- [License](#license)
 
-## SDK Installation
+## Installation
 
 The package is published to [PyPI](https://pypi.org/project/synthient/) as `synthient`.
 
@@ -68,23 +64,24 @@ poetry add synthient
 
 The [gRPC schema fetcher](#grpc-schema) needs the `grpc` extra, such as `pip install 'synthient[grpc]'`.
 
-## Requirements
+## Quick start
 
-Python 3.11 or later. The SDK depends on `httpx`, `pydantic` 2, and `anyio`.
+Set the `SYNTHIENT_API_KEY` environment variable, then look up an address. Each lookup costs one credit; failed lookups are free.
 
-## API Keys
+```python
+import synthient
 
-Every request needs a Synthient API key. Keys are issued from the Synthient dashboard; if you don't have one, [contact us](mailto:contact@synthient.com). A key's scopes decide what it can call: `BASIC` covers the lookups and `account()`, and each feed has its own scopes, listed under [Feeds](#feeds).
+with synthient.Client() as client:
+    info = client.lookup_ip("8.8.8.8")
+    if info.intelligence is not None:
+        print(info.intelligence.risk_score, info.intelligence.categories)
+```
 
-If a request fails even though you are sending a key:
-
-- **401 Unauthorized**: the key is malformed, unknown, or revoked.
-- **402 Payment Required**: the team is out of lookup credits.
-- **403 Forbidden**: the key lacks the scope for that endpoint or feed.
-
-`account()` shows the key's scopes and the team's remaining credits.
+A client pools connections and is safe to share across threads, so reuse one and close it with `close()` or a `with` block. The examples below reuse an open `client`, and runnable programs are in [examples](https://github.com/synthient/synthient-python/tree/main/examples). The full reference is in the [Python SDK docs](https://docs.synthient.com/sdks/python).
 
 ## Authentication
+
+Every request needs a Synthient API key. Keys are issued from the Synthient dashboard; if you don't have one, [contact us](mailto:contact@synthient.com). A key's scopes decide what it can call: `BASIC` covers the lookups and `account()`, and each feed has its own scopes, listed under [Feeds](#feeds).
 
 This SDK supports the following security scheme:
 
@@ -108,22 +105,33 @@ client = synthient.Client(api_key=api_key)
 
 Creating a client makes no network calls. To check a key, call `account()`, which costs no credits.
 
-## SDK Example Usage
+If a request fails even though you are sending a key:
+
+- **401 Unauthorized**: the key is malformed, unknown, or revoked.
+- **402 Payment Required**: the team is out of lookup credits.
+- **403 Forbidden**: the key lacks the scope for that endpoint or feed.
+
+`account()` shows the key's scopes and the team's remaining credits.
+
+See [Authentication](https://docs.synthient.com/authentication) for how keys and scopes work.
+
+## IP and domain lookups
+
+`lookup_ip()`, `lookup_ips()`, and `lookup_domain()` are described in full under [Lookups](https://docs.synthient.com/sdks/python/lookups), and the data they return under [IP API](https://docs.synthient.com/ipapi).
 
 ### Look up an IP address
 
-Get the network, location, and risk intelligence for an IPv4 or IPv6 address. Each lookup costs one credit; failed lookups are free.
+Get the network, location, and risk intelligence for an IPv4 or IPv6 address, given as a string or an `ipaddress` object.
 
 ```python
-import synthient
-
-with synthient.Client() as client:
-    info = client.lookup_ip("8.8.8.8")
-    if info.intelligence is not None:
-        print(info.intelligence.risk_score, info.intelligence.categories)
+info = client.lookup_ip("8.8.8.8")
+if info.network is not None:
+    print(info.network.asn, info.network.isp, info.network.type)
+if info.location is not None:
+    print(info.location.country, info.location.city)
 ```
 
-`network`, `location`, and `intelligence` are `None` when the API has no data for them. A client pools connections and is safe to share across threads, so reuse one and close it with `close()` or a `with` block. The examples below reuse an open `client`, and runnable programs are in [examples](https://github.com/synthient/synthient-python/tree/main/examples).
+`network`, `location`, and `intelligence` are `None` when the API has no data for them. An invalid address raises `ValueError` before any request is sent, and a private or reserved address raises an `APIError` with status 422.
 
 ### Look up many IP addresses
 
@@ -136,7 +144,7 @@ for result in results:
         print(result.ip, result.intelligence.risk_score)
 ```
 
-`ip` is an `ipaddress.IPv4Address` or `IPv6Address`, so compare it with `ipaddress.ip_address()`, not a string.
+`ip` is an `ipaddress.IPv4Address` or `IPv6Address`, so compare it with `ipaddress.ip_address()`, not a string. An empty batch returns `[]` without a request, and more than 1000 addresses raise `ValueError`.
 
 ### Look up a domain
 
@@ -149,7 +157,9 @@ for event in domain.recent_events:
     print(event.timestamp, event.target_subdomain, event.port)
 ```
 
-### Check your account
+`limit` caps the number of recent events, from 1 to 1000; without it the API returns 50. A domain that has never been observed returns `status` `"inactive"` with zeroed stats, not an error.
+
+## Account
 
 Get the key's account, scopes, and remaining lookup credits, at no cost.
 
@@ -158,7 +168,103 @@ account = client.account()
 print(account.organization.name, account.scopes, account.lookup_quota.credits)
 ```
 
-### Use asyncio or Trio
+`lookup_quota.resets_in` is the number of seconds until the credits reset.
+
+`health()` checks that the API is available. It returns `None`, and raises an `APIError` if the API reports a problem:
+
+```python
+client.health()
+```
+
+## Feeds
+
+Each feed has a real-time stream and hourly Parquet exports that roll up into daily exports. See [Feeds](https://docs.synthient.com/sdks/python/feeds) for the SDK reference, and [Firehose](https://docs.synthient.com/enterprise/firehose) and [Feeds](https://docs.synthient.com/enterprise/feeds) for the data behind them.
+
+Each feed is an attribute of the client, such as `client.proxies`, and has the same methods:
+
+- `stream` - Open the feed's real-time stream and iterate over its events
+- `list_exports` - List one page of the feed's Parquet exports, newest first
+- `iter_exports` - Iterate over every export, fetching pages as needed
+- `export_meta` - Get an export's checksum, size, row count, and Parquet schema
+- `download` - Download an export's Parquet file
+- `download_url` - Get a presigned URL for an export's Parquet file, valid for 24 hours
+
+| Attribute      | Data                                          | Event type         | Stream scope            | Export scope          |
+| -------------- | --------------------------------------------- | ------------------ | ----------------------- | --------------------- |
+| `proxies`      | Residential, mobile, and datacenter proxies   | `ProxyEvent`       | `PROXY_FIREHOSE`        | `PROXY_FEEDS`         |
+| `anonymizers`  | VPN and anonymizer IP ranges                  | `AnonymizerEvent`  | `ANONYMIZERS_STREAM`    | `ANONYMIZERS_FEED`    |
+| `torrents`     | BitTorrent DHT and tracker peers              | `TorrentEvent`     | `TORRENTS_STREAM`       | `TORRENTS_FEED`       |
+| `ja4t`         | JA4T TCP fingerprints                         | `JA4TEvent`        | `JA4T_STREAM`           | `JA4T_FEED`           |
+| `helios_http`  | Helios honeypot HTTP requests                 | `HeliosHTTPEvent`  | `HONEYPOT_HTTP_STREAM`  | `HONEYPOT_HTTP_FEED`  |
+| `helios_https` | Helios honeypot TLS ClientHellos              | `HeliosHTTPSEvent` | `HONEYPOT_HTTPS_STREAM` | `HONEYPOT_HTTPS_FEED` |
+| `helios_dns`   | Helios honeypot tunnel destinations           | `HeliosDNSEvent`   | `HONEYPOT_DNS_STREAM`   | `HONEYPOT_DNS_FEED`   |
+| `helios_adb`   | Helios honeypot Android Debug Bridge commands | `HeliosADBEvent`   | `HONEYPOT_ADB_STREAM`   | `HONEYPOT_ADB_FEED`   |
+
+### Streaming
+
+`stream()` is a context manager that yields an iterator over a feed's real-time events. Entering the `with` block opens a connection, and leaving it closes it:
+
+```python
+import time
+
+while True:
+    try:
+        with client.proxies.stream() as events:
+            for event in events:
+                print(event.ip, event.provider, event.type)
+    except synthient.SynthientError as error:
+        if isinstance(error, synthient.APIError) and error.status_code in {401, 403}:
+            raise
+        print("proxy stream:", error)
+        # Avoid reconnecting in a tight loop.
+        time.sleep(2)
+```
+
+- The server closes each stream after up to 30 minutes. That ends the `for` loop without an error, and the `while` loop reconnects at once.
+- A 401 or 403 stops the loop, because reconnecting can't fix a rejected key or a missing scope.
+- Any other failure raises a `SynthientError`, and the loop waits 2 seconds before reconnecting.
+- Events sent while disconnected are missed. The API has no resume cursor.
+
+### Exports
+
+`list_exports()` returns one page of a feed's exports, newest first. Pass `page.next_cursor` as `cursor` to get the next page; the last page has none.
+
+```python
+page = client.proxies.list_exports(limit=50)
+for export in page.exports:
+    print(export.id, export.kind, export.row_count)
+```
+
+`iter_exports()` fetches the pages for you as the loop needs them:
+
+```python
+for export in client.proxies.iter_exports():
+    print(export.id, export.kind, export.row_count)
+```
+
+On the first page, the newest hourly export has the ID `"latest"`, a moving alias for the freshest export. Its `date` and `hour` give its stable ID, such as `"2026-10-14/21"`.
+
+`limit` sets the page size, from 1 to 500; without it the API returns 100 exports per page.
+
+### Downloads
+
+Exports are Parquet files. `download()` is a context manager that yields a streaming `httpx.Response`:
+
+```python
+with (
+    client.proxies.download("latest") as response,
+    open("proxies.parquet", "wb") as file,
+):
+    for chunk in response.iter_bytes():
+        file.write(chunk)
+```
+
+- Name an export by its `id` from a listing, by `"latest"`, by a `date` or `"YYYY-MM-DD"` for a UTC day, or by a timezone-aware `datetime` or `"YYYY-MM-DD/H"` for a UTC hour.
+- `export_meta()` returns the file's SHA-256 checksum. Use a fixed ID for both calls, because `"latest"` can move between them.
+- `download_url()` returns a presigned URL that works without a key for 24 hours, so treat it as a secret. Your API key is never sent to the storage host.
+- Hourly exports roll into the daily export shortly after 00:30 UTC the next day. After that, the hour returns a 400.
+
+## Asyncio and Trio
 
 `AsyncClient` takes the same arguments as `Client` and has the same methods as coroutines, on asyncio or Trio. Use one client per event loop:
 
@@ -185,135 +291,13 @@ With Trio, use `trio.run(main)` instead. It differs from `Client` in a few ways:
 - Read events from `stream()` and exports from `iter_exports()` with `async for`, and a download's body with `aiter_bytes()`.
 - `http_client` takes an `httpx.AsyncClient`.
 
-## Available Resources and Operations
-
-<details open>
-<summary>Available methods</summary>
-
-### Client
-
-- `lookup_ip` - Look up an IPv4 or IPv6 address
-- `lookup_ips` - Look up as many as 1000 addresses in one request
-- `lookup_domain` - Look up the honeypot traffic observed for a domain
-- `account` - Get the key's account, scopes, and remaining lookup credits
-- `health` - Check that the API and its dependencies are healthy
-
-### Feeds
-
-Each feed is an attribute of the client, such as `client.proxies`, and has the same methods:
-
-- `stream` - Open the feed's real-time stream and iterate over its events
-- `list_exports` - List one page of the feed's Parquet exports, newest first
-- `iter_exports` - Iterate over every export, fetching pages as needed
-- `export_meta` - Get an export's checksum, size, row count, and Parquet schema
-- `download` - Download an export's Parquet file
-- `download_url` - Get a presigned URL for an export's Parquet file, valid for 24 hours
-
-| Attribute      | Data                                          | Event type         | Stream scope            | Export scope          |
-| -------------- | --------------------------------------------- | ------------------ | ----------------------- | --------------------- |
-| `proxies`      | Residential, mobile, and datacenter proxies   | `ProxyEvent`       | `PROXY_FIREHOSE`        | `PROXY_FEEDS`         |
-| `anonymizers`  | VPN and anonymizer IP ranges                  | `AnonymizerEvent`  | `ANONYMIZERS_STREAM`    | `ANONYMIZERS_FEED`    |
-| `torrents`     | BitTorrent DHT and tracker peers              | `TorrentEvent`     | `TORRENTS_STREAM`       | `TORRENTS_FEED`       |
-| `ja4t`         | JA4T TCP fingerprints                         | `JA4TEvent`        | `JA4T_STREAM`           | `JA4T_FEED`           |
-| `helios_http`  | Helios honeypot HTTP requests                 | `HeliosHTTPEvent`  | `HONEYPOT_HTTP_STREAM`  | `HONEYPOT_HTTP_FEED`  |
-| `helios_https` | Helios honeypot TLS ClientHellos              | `HeliosHTTPSEvent` | `HONEYPOT_HTTPS_STREAM` | `HONEYPOT_HTTPS_FEED` |
-| `helios_dns`   | Helios honeypot tunnel destinations           | `HeliosDNSEvent`   | `HONEYPOT_DNS_STREAM`   | `HONEYPOT_DNS_FEED`   |
-| `helios_adb`   | Helios honeypot Android Debug Bridge commands | `HeliosADBEvent`   | `HONEYPOT_ADB_STREAM`   | `HONEYPOT_ADB_FEED`   |
-
-</details>
-
-## Streaming
-
-`stream()` is a context manager that yields an iterator over a feed's real-time events. Entering the `with` block opens a connection, and leaving it closes it:
-
 ```python
-import time
-
-while True:
-    try:
-        with client.proxies.stream() as events:
-            for event in events:
-                print(event.ip, event.provider, event.type)
-    except synthient.SynthientError as error:
-        if isinstance(error, synthient.APIError) and error.status_code in {401, 403}:
-            raise
-        print("proxy stream:", error)
-        # Avoid reconnecting in a tight loop.
-        time.sleep(2)
+async with client.proxies.stream() as events:
+    async for event in events:
+        print(event.ip, event.provider, event.type)
 ```
 
-- The server closes each stream after up to 30 minutes. That ends the `for` loop without an error, and the `while` loop reconnects at once.
-- A 401 or 403 stops the loop, because reconnecting can't fix a rejected key or a missing scope.
-- Any other failure raises a `SynthientError`, and the loop waits 2 seconds before reconnecting.
-- Events sent while disconnected are missed. The API has no resume cursor.
-
-## Pagination
-
-`list_exports()` returns one page of a feed's exports, newest first. Pass `page.next_cursor` as `cursor` to get the next page; the last page has none.
-
-```python
-page = client.proxies.list_exports(limit=50)
-for export in page.exports:
-    print(export.id, export.kind, export.row_count)
-```
-
-`iter_exports()` fetches the pages for you as the loop needs them:
-
-```python
-for export in client.proxies.iter_exports():
-    print(export.id, export.kind, export.row_count)
-```
-
-On the first page, the newest hourly export has the ID `"latest"`, a moving alias for the freshest export. Its `date` and `hour` give its stable ID, such as `"2026-10-14/21"`.
-
-## Downloads
-
-Exports are Parquet files. `download()` is a context manager that yields a streaming `httpx.Response`:
-
-```python
-with (
-    client.proxies.download("latest") as response,
-    open("proxies.parquet", "wb") as file,
-):
-    for chunk in response.iter_bytes():
-        file.write(chunk)
-```
-
-- Name an export by its `id` from a listing, by `"latest"`, by a `date` or `"YYYY-MM-DD"` for a UTC day, or by a timezone-aware `datetime` or `"YYYY-MM-DD/H"` for a UTC hour.
-- `export_meta()` returns the file's SHA-256 checksum. Use a fixed ID for both calls, because `"latest"` can move between them.
-- `download_url()` returns a presigned URL that works without a key for 24 hours, so treat it as a secret. Your API key is never sent to the storage host.
-- Hourly exports roll into the daily export shortly after 00:30 UTC the next day. After that, the hour returns a 400.
-
-## Retries
-
-The client retries a failed request up to twice, backing off exponentially with jitter and honoring `Retry-After`:
-
-| Requests                      | Retried on                                                                                   |
-| ----------------------------- | -------------------------------------------------------------------------------------------- |
-| Account and feed requests     | 500, 502, 503, and 504, most transport errors, and 429 with `Retry-After`                    |
-| Billed lookups and `health()` | Only 429 with `Retry-After`, which comes before any work, so a lookup is never charged twice |
-
-A 429 without `Retry-After` means the monthly request budget is spent or too many streams are open, so it is raised at once. Downloads from the storage host are never retried.
-
-Set the number of retries with `max_retries`. Zero disables them:
-
-```python
-client = synthient.Client(max_retries=4)
-```
-
-## Timeouts
-
-The client allows 10 seconds to connect and 60 seconds for each read or write. Pass `timeout` as seconds or an `httpx.Timeout` to change it, or `None` to disable it:
-
-```python
-import httpx
-
-client = synthient.Client(timeout=httpx.Timeout(30.0, connect=5.0))
-```
-
-`timeout` bounds each network operation, not a whole call. Open streams stay within the read timeout, because the API sends a keepalive line every 15 seconds.
-
-## Error Handling
+## Errors
 
 A request that fails with a non-success status raises an `APIError`:
 
@@ -345,7 +329,7 @@ except synthient.APIError as error:
         print("request", error.request_id, "failed:", error.detail or error.title)
 ```
 
-### Error Types
+### Error types
 
 - `SynthientError`: the base class of the SDK's errors, also raised for a response it can't use.
 - `APIError`: the API, or the storage host during `download()`, returned a non-success status.
@@ -373,9 +357,60 @@ except synthient.APIError as error:
 
 </details>
 
-## Server Selection
+See [Errors and retries](https://docs.synthient.com/sdks/python/errors) for the SDK reference and [Errors](https://docs.synthient.com/errors) for what each status means.
 
-### Override Server URL Per-Client
+## Retries and timeouts
+
+### Retries
+
+The client retries a failed request up to twice, backing off exponentially with jitter and honoring `Retry-After`:
+
+| Requests                      | Retried on                                                                                   |
+| ----------------------------- | -------------------------------------------------------------------------------------------- |
+| Account and feed requests     | 500, 502, 503, and 504, most transport errors, and 429 with `Retry-After`                    |
+| Billed lookups and `health()` | Only 429 with `Retry-After`, which comes before any work, so a lookup is never charged twice |
+
+Waits start at about one second and double up to 30 seconds, and are never shorter than `Retry-After`. A `Retry-After` longer than a minute raises the error instead of retrying.
+
+A 429 without `Retry-After` means the monthly request budget is spent or too many streams are open, so it is raised at once. Downloads from the storage host are never retried.
+
+Set the number of retries with `max_retries`. Zero disables them:
+
+```python
+client = synthient.Client(max_retries=4)
+```
+
+See [Rate Limits](https://docs.synthient.com/rate-limits) for the limits behind a 429.
+
+### Timeouts
+
+The client allows 10 seconds to connect and 60 seconds for each read or write. Pass `timeout` as seconds or an `httpx.Timeout` to change it, or `None` to disable it:
+
+```python
+import httpx
+
+client = synthient.Client(timeout=httpx.Timeout(30.0, connect=5.0))
+```
+
+`timeout` bounds each network operation, not a whole call. Open streams stay within the read timeout, because the API sends a keepalive line every 15 seconds. A timeout raises `APITimeoutError`, except while you read a `download()` body, where httpx raises `httpx.ReadTimeout`.
+
+## Configuration
+
+`Client` and `AsyncClient` take the same arguments. Every argument after `api_key` is keyword-only. See [Client](https://docs.synthient.com/sdks/python/client) for the full reference.
+
+| Argument        | Default                              | Description                                                             |
+| --------------- | ------------------------------------ | ----------------------------------------------------------------------- |
+| `api_key`       | `SYNTHIENT_API_KEY`                  | The API key                                                             |
+| `base_url`      | `https://api.synthient.com/api/v4`   | The API base URL, including the version path                            |
+| `max_retries`   | `2`                                  | How many times a failed request is retried; `0` disables retries        |
+| `timeout`       | `httpx.Timeout(60.0, connect=10.0)`  | Seconds, an `httpx.Timeout`, or `None` for no timeout                   |
+| `http_client`   | `None`                               | Your own `httpx.Client`, or `httpx.AsyncClient` on `AsyncClient`        |
+| `user_agent`    | `None`                               | A product token appended to the `User-Agent` header                     |
+| `response_hook` | `None`                               | Called with the [metadata](#response-metadata) of every API response    |
+
+An invalid argument raises `ValueError` when the client is created, and an API key that is not a string raises `TypeError`.
+
+### Server URL
 
 The default server is `https://api.synthient.com/api/v4`, available as `synthient.DEFAULT_BASE_URL`. Use `base_url` to send requests elsewhere, such as a mock server in tests:
 
@@ -383,7 +418,7 @@ The default server is `https://api.synthient.com/api/v4`, available as `synthien
 client = synthient.Client(base_url="http://localhost:8080/api/v4")
 ```
 
-## Custom HTTP Client
+### Custom HTTP client
 
 The client sends requests with [httpx](https://www.python-httpx.org). Pass your own `httpx.Client` as `http_client`, for example to use a proxy:
 
@@ -404,9 +439,9 @@ with (
 - Downloads from the storage host leave out your client's default headers, cookies, query parameters, and authentication.
 - `AsyncClient` takes an `httpx.AsyncClient`.
 
-`user_agent="my-app/1.2"` adds your product token to the `User-Agent` header.
+`user_agent="my-app/1.2"` adds your product token to the `User-Agent` header. The header starts with `synthient-python/` and the SDK version, which is also available as `synthient.__version__`.
 
-## Debugging
+## Response metadata
 
 `response_hook` calls a function after every API response, including retries, pages, and stream handshakes, with a `ResponseMetadata` holding the status, request ID, and headers:
 
@@ -428,12 +463,12 @@ def log_response(meta: synthient.ResponseMetadata) -> None:
 client = synthient.Client(response_hook=log_response)
 ```
 
-The hook runs synchronously, also on `AsyncClient`, and an exception it raises reaches the caller.
+The hook runs synchronously, also on `AsyncClient`, and an exception it raises reaches the caller. It also sees error responses, but not download responses from the storage host. `ResponseMetadata` has no rate limit fields: read the `RateLimit-Limit`, `RateLimit-Remaining`, and `RateLimit-Reset` headers from `headers` when they are present.
 
 > [!WARNING]
 > Response headers can contain secrets, such as presigned download URLs. Avoid logging `meta.headers` in production.
 
-## gRPC Schema
+## gRPC schema
 
 The `synthient.grpcschema` module fetches the protobuf schema of the [Synthient gRPC API](https://docs.synthient.com/grpc) through server reflection. It needs the `grpc` extra:
 
@@ -452,11 +487,36 @@ for file in schema.descriptor_set.file:
 
 `fetch()` reads the key from `SYNTHIENT_API_KEY` unless you pass one. `schema.descriptor_set` is a protobuf `FileDescriptorSet`. `grpcschema.explain()` describes common gRPC errors in plain language.
 
-# Development
+`fetch()` also takes keyword arguments:
 
-## Maturity
+| Argument    | Default                  | Description                                                                 |
+| ----------- | ------------------------ | --------------------------------------------------------------------------- |
+| `endpoint`  | `grpc.synthient.com:443` | The server as `host:port`, a bare host, or a `grpc://` or `https://` URL    |
+| `plaintext` | `False`                  | Disables TLS, for local development servers                                 |
+| `symbols`   | `()`                     | Service or message names to resolve; empty resolves every listed service    |
+| `timeout`   | `30.0`                   | Seconds allowed for the whole fetch, or `None` for no limit                 |
+
+See [gRPC schema](https://docs.synthient.com/sdks/python/grpc-schema) for the full reference.
+
+## Requirements
+
+Python 3.11 or later. The SDK depends on `httpx`, `pydantic` 2, and `anyio`.
+
+## Versioning
 
 This SDK follows [Semantic Versioning](https://semver.org). Breaking changes ship only in a new major version, so a requirement such as `synthient>=1,<2` avoids them. Modules whose names start with an underscore are internal.
+
+## Documentation
+
+- [Python SDK](https://docs.synthient.com/sdks/python): getting started
+- [Client](https://docs.synthient.com/sdks/python/client): the constructor, its arguments, and response metadata
+- [Lookups](https://docs.synthient.com/sdks/python/lookups): IP and domain lookups, account, and health
+- [Feeds](https://docs.synthient.com/sdks/python/feeds): streams and Parquet exports
+- [Errors and retries](https://docs.synthient.com/sdks/python/errors): error classes, retries, and timeouts
+- [Types](https://docs.synthient.com/sdks/python/types): the fields of every response and event type
+- [gRPC schema](https://docs.synthient.com/sdks/python/grpc-schema): the `synthient.grpcschema` module
+
+Responses and events are frozen [pydantic](https://docs.pydantic.dev) models, exported from the `synthient` package for type annotations.
 
 ## Contributions
 
