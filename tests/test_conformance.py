@@ -8,7 +8,7 @@ import types
 from collections.abc import Awaitable, Callable
 from datetime import date, datetime
 from pathlib import Path
-from typing import Annotated, Any, Union, get_args, get_origin
+from typing import Annotated, Any, Literal, Union, get_args, get_origin
 
 import httpx
 import pytest
@@ -37,19 +37,13 @@ MODELS: dict[str, type[BaseModel]] = {
     "ProviderEntry": synthient.Provider,
     "LocationInfo": synthient.Location,
     "NetworkInfo": synthient.Network,
-    "DomainLookupResponse": synthient.DomainInfo,
-    "Stats": synthient.DomainStats,
-    "TimeSeriesEntry": synthient.TimeSeriesPoint,
-    "UniqueIPsBlock": synthient.UniqueIPs,
-    "SubdomainEntry": synthient.SubdomainCount,
-    "PortEntry": synthient.PortCount,
-    "CountryEntry": synthient.CountryCount,
-    "ASNEntry": synthient.ASNCount,
-    "ActivityStatsBlock": synthient.ActivityStats,
-    "RecentEvent": synthient.DomainEvent,
     "ExportListResponse": synthient.ExportPage,
     "ExportListItem": synthient.Export,
     "ExportMetaResponse": synthient.ExportMeta,
+    "ExportFormatFile": synthient.ExportFile,
+    "ExportEntityFile": synthient.ExportEntity,
+    "ExportDailyResponse": synthient.ExportVolume,
+    "ExportDailyItem": synthient.ExportVolumeDay,
     "Schema": synthient.ParquetSchema,
     "ProjectedColumn": synthient.ParquetColumn,
     "ProxyStreamEntry": synthient.ProxyEvent,
@@ -74,6 +68,14 @@ UNMODELED = {
     "ValidationProblemDetails": "parsed leniently into APIError",
 }
 
+# Required in the spec, but decoded with a default when absent or null.
+LENIENT = {
+    (synthient.ParquetSchema, "fields"): "the WHOIS meta once sent null (openapi-issues #42)"
+}
+
+# Removed from the spec, but kept in the SDK as deprecated until the next major version.
+DEPRECATED_OPERATIONS = {"GET /lookup/domain/{domain}": "lookup_domain"}
+
 
 def full_annotation(field: FieldInfo) -> Any:
     if field.metadata:
@@ -92,7 +94,13 @@ def compatible(schema: dict[str, Any], annotation: Any) -> bool:  # noqa: PLR091
             return schema.get("type") == "string"
         return compatible(schema, base)
     if origin in {Union, types.UnionType}:
-        return any(compatible(schema, arg) for arg in get_args(annotation) if arg is not type(None))
+        return all(compatible(schema, arg) for arg in get_args(annotation) if arg is not type(None))
+    if origin is Literal:
+        # Some plain spec strings are typed with the values the API sends (openapi-issues #41, #47).
+        values = schema.get("enum") or schema.get("x-extensible-enum")
+        return schema.get("type") == "string" and (
+            values is None or set(values) == set(get_args(annotation))
+        )
     if "allOf" in schema:
         return all(compatible(part, annotation) for part in schema["allOf"])
     if "$ref" in schema:
@@ -133,7 +141,7 @@ def mismatches(schema: dict[str, Any], model: type[BaseModel]) -> list[str]:
         field = fields.get(name)
         if field is None:
             problems.append(f"{name} is not modeled")
-        elif field.is_required() != (name in required):
+        elif field.is_required() != (name in required) and (model, name) not in LENIENT:
             problems.append(f"{name} should be {'required' if name in required else 'optional'}")
         elif not compatible(property_schema, full_annotation(field)):
             problems.append(f"{name} has type {field.annotation}")
@@ -158,9 +166,10 @@ def spec_operations() -> set[str]:
 def to_template(method: str, path: str) -> str:
     """Map a request path to the most specific spec path template that matches it."""
     path = path.removeprefix("/api/v4")
+    templates = [*SPEC["paths"], *(operation.split()[1] for operation in DEPRECATED_OPERATIONS)]
     matches = [
         template
-        for template in SPEC["paths"]
+        for template in templates
         if re.fullmatch(re.sub(r"\{[^}]+\}", "[^/]+", template), path)
     ]
     assert matches, f"{method} {path} matches no spec path"
@@ -177,6 +186,7 @@ def recorder() -> tuple[set[str], Callable[[httpx.Request], httpx.Response]]:
     return seen, handler
 
 
+@pytest.mark.filterwarnings("ignore:Domain lookup was removed:DeprecationWarning")
 def test_sync_client_covers_every_operation(make_client: MakeClient) -> None:
     seen, handler = recorder()
     client = make_client(handler, max_retries=0)
@@ -185,7 +195,7 @@ def test_sync_client_covers_every_operation(make_client: MakeClient) -> None:
         client.health,
         lambda: client.lookup_ip("8.8.8.8"),
         lambda: client.lookup_ips(["8.8.8.8"]),
-        lambda: client.lookup_domain("example.com"),
+        lambda: client.lookup_domain("example.com"),  # pyright: ignore[reportDeprecated]
     ]
     feeds = (
         client.proxies,
@@ -199,17 +209,24 @@ def test_sync_client_covers_every_operation(make_client: MakeClient) -> None:
     )
     for feed in feeds:
         calls.append(feed.list_exports)
+        calls.append(feed.export_volume)
         calls.append(lambda feed=feed: feed.stream().__enter__())
         for export in ("2026-05-03", "2026-05-03/7"):
             calls.append(lambda feed=feed, export=export: feed.export_meta(export))
             calls.append(lambda feed=feed, export=export: feed.download_url(export))
+    for dataset in (client.geolocation, client.whois):
+        calls.append(dataset.list_exports)
+        calls.append(dataset.export_volume)
+        calls.append(lambda dataset=dataset: dataset.export_meta("2026-05-03"))
+        calls.append(lambda dataset=dataset: dataset.download_url("2026-05-03"))
     for call in calls:
         with pytest.raises(SynthientError):
             call()
-    assert seen == spec_operations()
+    assert seen == spec_operations() | set(DEPRECATED_OPERATIONS)
 
 
 @pytest.mark.anyio
+@pytest.mark.filterwarnings("ignore:Domain lookup was removed:DeprecationWarning")
 async def test_async_client_covers_every_operation() -> None:
     seen, handler = recorder()
     async with async_client(handler, max_retries=0) as client:
@@ -218,7 +235,7 @@ async def test_async_client_covers_every_operation() -> None:
             client.health,
             lambda: client.lookup_ip("8.8.8.8"),
             lambda: client.lookup_ips(["8.8.8.8"]),
-            lambda: client.lookup_domain("example.com"),
+            lambda: client.lookup_domain("example.com"),  # pyright: ignore[reportDeprecated]
         ]
         feeds = (
             client.proxies,
@@ -232,11 +249,17 @@ async def test_async_client_covers_every_operation() -> None:
         )
         for feed in feeds:
             calls.append(feed.list_exports)
+            calls.append(feed.export_volume)
             calls.append(lambda feed=feed: feed.stream().__aenter__())
             for export in ("2026-05-03", "2026-05-03/7"):
                 calls.append(lambda feed=feed, export=export: feed.export_meta(export))
                 calls.append(lambda feed=feed, export=export: feed.download_url(export))
+        for dataset in (client.geolocation, client.whois):
+            calls.append(dataset.list_exports)
+            calls.append(dataset.export_volume)
+            calls.append(lambda dataset=dataset: dataset.export_meta("2026-05-03"))
+            calls.append(lambda dataset=dataset: dataset.download_url("2026-05-03"))
         for call in calls:
             with pytest.raises(SynthientError):
                 await call()
-    assert seen == spec_operations()
+    assert seen == spec_operations() | set(DEPRECATED_OPERATIONS)

@@ -44,10 +44,22 @@ def test_account(make_client: MakeClient) -> None:
     assert account.api_key.created_at == datetime(2026, 5, 1, 12, 0, 0, 123456, tzinfo=UTC)
 
 
-def test_account_without_api_key(make_client: MakeClient) -> None:
-    body = {key: value for key, value in ACCOUNT.items() if key != "api_key"}
+@pytest.mark.parametrize(
+    "body",
+    [
+        {key: value for key, value in ACCOUNT.items() if key != "api_key"},
+        {**ACCOUNT, "api_key": None},
+    ],
+)
+def test_account_without_api_key(make_client: MakeClient, body: dict[str, object]) -> None:
     account = make_client(lambda _: json_response(200, body)).account()
     assert account.api_key is None
+
+
+def test_account_new_scopes(make_client: MakeClient) -> None:
+    scopes = ["GEOLOCATION_FEED", "WHOIS_FEED", "WHOIS_STREAM", "HELIOS", "FILE_IOCS_STREAM"]
+    account = make_client(lambda _: json_response(200, {**ACCOUNT, "scopes": scopes})).account()
+    assert account.scopes == scopes
 
 
 @pytest.mark.parametrize(

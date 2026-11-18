@@ -1,5 +1,5 @@
-"""The official Python client for the Synthient API: IP and domain intelligence, account
-details, and real-time and bulk data feeds.
+"""The official Python client for the Synthient API: IP intelligence, account details,
+and real-time and bulk data feeds.
 
 Create a client and reuse it for every request::
 
@@ -15,9 +15,9 @@ Create a client and reuse it for every request::
 
 from importlib.metadata import version
 
-from synthient._async_client import AsyncClient, AsyncFeed
+from synthient._async_client import AsyncClient, AsyncDataset, AsyncFeed
 from synthient._base import DEFAULT_BASE_URL, ResponseHook, ResponseMetadata
-from synthient._client import Client, Feed
+from synthient._client import Client, Dataset, Feed
 from synthient._errors import APIConnectionError, APIError, APITimeoutError, SynthientError
 from synthient._models import (
     Account,
@@ -28,16 +28,23 @@ from synthient._models import (
     CountryCount,
     Device,
     DomainEvent,
-    DomainInfo,
+    DomainInfo,  # pyright: ignore[reportDeprecated]
     DomainStats,
     Export,
+    ExportEntity,
+    ExportFile,
+    ExportFormat,
     ExportMeta,
     ExportPage,
+    ExportVariant,
+    ExportVolume,
+    ExportVolumeDay,
     HeliosADBEvent,
     HeliosDNSEvent,
     HeliosHTTPEvent,
     HeliosHTTPSEvent,
     HeliosMeta,
+    HeliosTransport,
     HTTPRequestDetails,
     Intelligence,
     IPInfo,
@@ -60,6 +67,7 @@ from synthient._models import (
     TorrentFile,
     TorrentPeer,
     UniqueIPs,
+    WhoisEntity,
 )
 
 __version__ = version("synthient")
@@ -75,16 +83,24 @@ __all__ = [
     "ActivityStats",
     "AnonymizerEvent",
     "AsyncClient",
+    "AsyncDataset",
     "AsyncFeed",
     "Client",
     "CountryCount",
+    "Dataset",
     "Device",
     "DomainEvent",
     "DomainInfo",
     "DomainStats",
     "Export",
+    "ExportEntity",
+    "ExportFile",
+    "ExportFormat",
     "ExportMeta",
     "ExportPage",
+    "ExportVariant",
+    "ExportVolume",
+    "ExportVolumeDay",
     "Feed",
     "HTTPRequestDetails",
     "HeliosADBEvent",
@@ -92,6 +108,7 @@ __all__ = [
     "HeliosHTTPEvent",
     "HeliosHTTPSEvent",
     "HeliosMeta",
+    "HeliosTransport",
     "IPInfo",
     "Intelligence",
     "JA4TEvent",
@@ -116,5 +133,6 @@ __all__ = [
     "TorrentFile",
     "TorrentPeer",
     "UniqueIPs",
+    "WhoisEntity",
     "__version__",
 ]

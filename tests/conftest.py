@@ -66,6 +66,7 @@ EXPORT: dict[str, Any] = {
     "checksum": "ab12",
     "created_at": 1778187600,
     "download_path": "/api/v4/feeds/proxies/export/2026-05-07/21",
+    "formats": [{"format": "parquet", "size_bytes": 1048576, "checksum": "ab12"}],
 }
 
 HELIOS_HTTPS: dict[str, Any] = {
@@ -80,6 +81,7 @@ HELIOS_HTTPS: dict[str, Any] = {
         "pool_id": "prod",
         "provider": "luminati",
     },
+    "transport": "tcp",
     "details": {
         "handshake_version": "TLS 1.2",
         "sni": "example.com",
@@ -181,7 +183,7 @@ def serve() -> Iterator[Callable[[ServerHandler], str]]:
             def do_POST(self) -> None:
                 handle(self)
 
-            def log_message(self, format: str, *args: object) -> None:  # noqa: A002
+            def log_message(self, format: str, *args: object) -> None:
                 pass
 
         server = ThreadingHTTPServer(("127.0.0.1", 0), RequestHandler)

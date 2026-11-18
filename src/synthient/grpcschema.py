@@ -91,8 +91,9 @@ def fetch(
     """Fetch the protobuf files that define ``symbols`` and all of their imports.
 
     Args:
-        api_key: Sent as x-api-key metadata when not empty. Defaults to the
-            SYNTHIENT_API_KEY environment variable.
+        api_key: Sent as x-api-key metadata, which server reflection requires. Defaults to
+            the SYNTHIENT_API_KEY environment variable. An empty key is not sent, and the
+            server answers UNAUTHENTICATED.
         endpoint: The server as host:port, a bare host (port 443 is assumed), or a
             grpc:// or https:// URL.
         plaintext: Disables TLS, for local development servers.

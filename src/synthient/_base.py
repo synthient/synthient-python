@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import math
 import os
@@ -58,7 +59,8 @@ ResponseHook = Callable[[ResponseMetadata], None]
 class Request:
     path: str
     method: str = "GET"
-    params: dict[str, str] | None = None
+    # None values are left out of the query string.
+    params: dict[str, str | None] | None = None
     body: bytes | None = None
     accept: str = "application/json"
     policy: RetryPolicy = RetryPolicy.TRANSIENT
@@ -128,7 +130,9 @@ class BaseTransport:
         return http.build_request(
             request.method,
             f"{self.config.base_url}{request.path}",
-            params=request.params,
+            params={
+                name: value for name, value in (request.params or {}).items() if value is not None
+            },
             content=request.body,
             headers=headers,
             timeout=self.config.timeout,
@@ -196,12 +200,12 @@ def _ip(value: str | IPv4Address | IPv6Address) -> str:
     return str(ip_address(value))
 
 
-def _limit(limit: int | None) -> dict[str, str]:
-    if limit is None:
-        return {}
-    if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
-        raise ValueError("limit must be a positive integer")
-    return {"limit": str(limit)}
+def _positive(name: str, value: int | None) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise ValueError(f"{name} must be a positive integer")
+    return str(value)
 
 
 def lookup_ip_request(ip: str | IPv4Address | IPv6Address) -> Request:
@@ -232,16 +236,40 @@ def lookup_domain_request(domain: str, limit: int | None) -> Request:
         raise ValueError(f"invalid domain {domain!r}")
     return Request(
         path=f"/lookup/domain/{quote(domain, safe=_PATH_SAFE)}",
-        params=_limit(limit),
+        params={"limit": _positive("limit", limit)},
         policy=RetryPolicy.RATE_LIMIT,
     )
 
 
-def list_exports_request(feed_path: str, limit: int | None, cursor: str | None) -> Request:
-    params = _limit(limit)
-    if cursor:
-        params["cursor"] = cursor
-    return Request(path=f"{feed_path}/export", params=params)
+def list_exports_request(
+    path: str,
+    *,
+    limit: int | None,
+    cursor: str | None,
+    day: str | date | None,
+    variant: str | None = None,
+) -> Request:
+    return Request(
+        path=f"{path}/export",
+        params={
+            "limit": _positive("limit", limit),
+            "cursor": cursor or None,
+            "day": None if day is None else _day(day),
+            "variant": variant,
+        },
+    )
+
+
+def _day(day: str | date) -> str:
+    # A day filter takes the same forms as a daily export ID.
+    with contextlib.suppress(ValueError):
+        if day != "latest":
+            return daily_export_path(day)
+    raise ValueError(f"invalid day {day!r}: expected a date or 'YYYY-MM-DD'")
+
+
+def export_volume_request(path: str, days: int | None) -> Request:
+    return Request(path=f"{path}/export/daily", params={"days": _positive("days", days)})
 
 
 def export_path(export: str | date) -> str:
@@ -268,6 +296,13 @@ def export_path(export: str | date) -> str:
     if hour > 23:  # noqa: PLR2004
         raise invalid
     return f"{day.isoformat()}/{hour}"
+
+
+def daily_export_path(export: str | date) -> str:
+    path = export_path(export)
+    if "/" in path:
+        raise ValueError(f"invalid export ID {export!r}: datasets have only daily exports")
+    return path
 
 
 def decode(body: bytes, model: type[ModelT]) -> ModelT:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Generator, Iterable, Iterator
 from contextlib import contextmanager
+from dataclasses import replace
 from datetime import date
 from http import HTTPStatus
 from ipaddress import IPv4Address, IPv6Address
@@ -9,6 +10,7 @@ from time import sleep
 from typing import Generic, Self
 
 import httpx
+from typing_extensions import deprecated
 
 from synthient._base import (
     DEFAULT_BASE_URL,
@@ -23,8 +25,10 @@ from synthient._base import (
     Request,
     ResponseHook,
     connection_error,
+    daily_export_path,
     decode,
     export_path,
+    export_volume_request,
     list_exports_request,
     lookup_domain_request,
     lookup_ip_request,
@@ -33,12 +37,16 @@ from synthient._base import (
 )
 from synthient._errors import APIError, SynthientError, api_error
 from synthient._models import (
+    DOMAIN_LOOKUP_REMOVED,
     Account,
     AnonymizerEvent,
-    DomainInfo,
+    DomainInfo,  # pyright: ignore[reportDeprecated]
     Export,
+    ExportFormat,
     ExportMeta,
     ExportPage,
+    ExportVariant,
+    ExportVolume,
     HealthResponse,
     HeliosADBEvent,
     HeliosDNSEvent,
@@ -138,8 +146,22 @@ class Transport(BaseTransport):
                 response.close()
         return response
 
-    def download_url(self, path: str) -> str:
-        response = self.send(Request(path=path))
+    def iter_exports(self, request: Request) -> Iterator[Export]:
+        """Yield the exports of a listing, fetching its pages lazily."""
+        params = dict(request.params or {})
+        seen = {params.get("cursor")}
+        while True:
+            page = self.request(replace(request, params=params), ExportPage)
+            yield from page.exports
+            if not page.next_cursor:
+                return
+            if page.next_cursor in seen:
+                raise SynthientError("export listing returned a repeated cursor")
+            seen.add(page.next_cursor)
+            params = {**params, "cursor": page.next_cursor}
+
+    def download_url(self, request: Request) -> str:
+        response = self.send(request)
         try:
             if response.status_code >= HTTPStatus.BAD_REQUEST:
                 raise self.api_error(response)
@@ -181,12 +203,13 @@ class Client:
     Reuse one client for many requests; it pools connections and is safe to share across
     threads. Close it with ``close()`` or a ``with`` block.
 
-    Account and feed requests are retried on 429, 500, 502, 503, and 504 responses and on
-    transient connection failures before a response arrives. Lookups and ``health()`` are
-    retried only on 429, which the API returns before doing any work. The storage request
-    of ``download()`` is not retried. Retries back off exponentially with jitter and honor
-    Retry-After up to one minute. A 429 without Retry-After is not retried, because it
-    means the key's monthly request budget is spent or too many of its streams are open.
+    Account, feed, and dataset requests are retried on 429, 500, 502, 503, and 504
+    responses and on transient connection failures before a response arrives. Lookups and
+    ``health()`` are retried only on 429, which the API returns before doing any work. The
+    storage request of ``download()`` is not retried. Retries back off exponentially with
+    jitter and honor Retry-After up to one minute. A 429 without Retry-After is not
+    retried, because it means the key's monthly request budget is spent or too many of its
+    streams are open.
 
     Args:
         api_key: Defaults to the SYNTHIENT_API_KEY environment variable.
@@ -225,6 +248,10 @@ class Client:
     """The Helios honeypot DNS tunnel destination feed."""
     helios_adb: Feed[HeliosADBEvent]
     """The Helios honeypot Android Debug Bridge command feed."""
+    geolocation: Dataset
+    """The daily IP geolocation dataset."""
+    whois: Dataset
+    """The daily WHOIS registry dataset."""
 
     def __init__(
         self,
@@ -250,10 +277,12 @@ class Client:
         self.anonymizers = Feed(self._transport, "/feeds/anonymizers", AnonymizerEvent)
         self.torrents = Feed(self._transport, "/feeds/torrents", TorrentEvent)
         self.ja4t = Feed(self._transport, "/feeds/ja4t", JA4TEvent)
-        self.helios_http = Feed(self._transport, "/feeds/helio/http", HeliosHTTPEvent)
-        self.helios_https = Feed(self._transport, "/feeds/helio/https", HeliosHTTPSEvent)
-        self.helios_dns = Feed(self._transport, "/feeds/helio/dns", HeliosDNSEvent)
-        self.helios_adb = Feed(self._transport, "/feeds/helio/adb", HeliosADBEvent)
+        self.helios_http = Feed(self._transport, "/feeds/helios/http", HeliosHTTPEvent)
+        self.helios_https = Feed(self._transport, "/feeds/helios/https", HeliosHTTPSEvent)
+        self.helios_dns = Feed(self._transport, "/feeds/helios/dns", HeliosDNSEvent)
+        self.helios_adb = Feed(self._transport, "/feeds/helios/adb", HeliosADBEvent)
+        self.geolocation = Dataset(self._transport, "/feeds/geolocation")
+        self.whois = Dataset(self._transport, "/feeds/whois")
 
     def close(self) -> None:
         """Close the connection pool, unless it belongs to ``http_client``.
@@ -297,22 +326,26 @@ class Client:
     def lookup_ips(self, ips: Iterable[str | IPv4Address | IPv6Address]) -> list[IPInfo]:
         """Look up as many as 1000 addresses in one request.
 
-        The API bills ceil(n * 0.9) credits for n distinct usable addresses. Private and
-        reserved addresses are skipped without a result, and duplicates collapse into one,
-        so match results by IP rather than by position. Results follow the order in which
-        each address first appears. An empty list returns [] without a request.
+        The batch size the API accepts depends on the plan: 100 on Free, 500 on Starter,
+        and 1000 on Premium and Enterprise. The API bills ceil(n * 0.9) credits for n
+        distinct usable addresses. Private and reserved addresses are skipped without a
+        result, and duplicates collapse into one, so match results by IP rather than by
+        position. Results follow the order in which each address first appears. An empty
+        list returns [] without a request.
 
         Raises:
             ValueError: If an address is invalid or there are more than 1000. No request
                 is sent.
-            APIError: With status 422 if every address is private or reserved.
+            APIError: With status 422 if the batch exceeds the plan's limit or every
+                address is private or reserved.
         """
         addresses = list(ips)
         if not addresses:
             return []
         return self._transport.request(lookup_ips_request(addresses), IPBatchResponse).results
 
-    def lookup_domain(self, domain: str, *, limit: int | None = None) -> DomainInfo:
+    @deprecated(DOMAIN_LOOKUP_REMOVED)
+    def lookup_domain(self, domain: str, *, limit: int | None = None) -> DomainInfo:  # pyright: ignore[reportDeprecated]
         """Return the honeypot traffic observed for a domain.
 
         Each lookup costs one credit, and the API allows 20 per minute per team. A domain
@@ -322,7 +355,10 @@ class Client:
             domain: Internationalized names must be sent in Punycode.
             limit: Caps the number of recent events, from 1 to 1000. The API default is 50.
         """
-        return self._transport.request(lookup_domain_request(domain, limit), DomainInfo)
+        return self._transport.request(
+            lookup_domain_request(domain, limit),
+            DomainInfo,  # pyright: ignore[reportDeprecated]
+        )
 
 
 class Feed(Generic[ModelT]):
@@ -345,8 +381,9 @@ class Feed(Generic[ModelT]):
         """Open the feed's real-time stream and yield an iterator over its events.
 
         The connection opens when the ``with`` block is entered and closes when it exits,
-        even after a ``break``. The server ends streams after up to 30 minutes, which
-        ends the iteration without an error; open a new stream to keep consuming.
+        even after a ``break``. The server can end a stream at any time, such as during a
+        deploy, which ends the iteration without an error; open a new stream to keep
+        consuming.
 
         Raises:
             APIError: If the stream cannot be opened, such as 403 without the feed's
@@ -374,56 +411,98 @@ class Feed(Generic[ModelT]):
         if last is not None:
             yield decode(last, self._event)
 
-    def list_exports(self, *, limit: int | None = None, cursor: str | None = None) -> ExportPage:
+    def list_exports(
+        self,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        day: str | date | None = None,
+        variant: ExportVariant | None = None,
+    ) -> ExportPage:
         """Return one page of the feed's exports, newest first.
 
         Args:
             limit: The page size, from 1 to 500. The API default is 100.
             cursor: Continues a listing from a previous page's ``next_cursor``.
+            day: Lists only the exports of this UTC day, a ``date`` or "YYYY-MM-DD".
+            variant: "lite" lists the deduplicated files instead. Only the proxies,
+                anonymizers, and JA4T feeds have them; other feeds list nothing.
         """
-        return self._transport.request(list_exports_request(self._path, limit, cursor), ExportPage)
+        return self._transport.request(
+            list_exports_request(self._path, limit=limit, cursor=cursor, day=day, variant=variant),
+            ExportPage,
+        )
 
     def iter_exports(
-        self, *, limit: int | None = None, cursor: str | None = None
+        self,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        day: str | date | None = None,
+        variant: ExportVariant | None = None,
     ) -> Iterator[Export]:
         """Iterate over the feed's exports, newest first, fetching pages lazily.
+
+        It takes the arguments of ``list_exports``.
 
         Raises:
             SynthientError: If the API repeats a cursor, after that page's exports.
         """
-        seen = {cursor}
-        while True:
-            page = self.list_exports(limit=limit, cursor=cursor)
-            yield from page.exports
-            if not page.next_cursor:
-                return
-            if page.next_cursor in seen:
-                raise SynthientError("export listing returned a repeated cursor")
-            seen.add(page.next_cursor)
-            cursor = page.next_cursor
-
-    def export_meta(self, export: str | date) -> ExportMeta:
-        """Return the checksum, size, row count, and parquet schema of an export."""
-        return self._transport.request(
-            Request(path=f"{self._path}/export/{export_path(export)}/meta"), ExportMeta
+        return self._transport.iter_exports(
+            list_exports_request(self._path, limit=limit, cursor=cursor, day=day, variant=variant)
         )
 
-    def download_url(self, export: str | date) -> str:
+    def export_volume(self, *, days: int | None = None) -> ExportVolume:
+        """Return the rows and bytes the feed exported per UTC day, oldest first.
+
+        Args:
+            days: How many UTC days to cover, today included, from 1 to 366. The API
+                default is 90.
+        """
+        return self._transport.request(export_volume_request(self._path, days), ExportVolume)
+
+    def export_meta(
+        self, export: str | date, *, variant: ExportVariant | None = None
+    ) -> ExportMeta:
+        """Return the checksum, size, row count, and parquet schema of an export.
+
+        Args:
+            variant: "lite" describes the deduplicated file, which only the proxies,
+                anonymizers, and JA4T feeds publish. Until it is published, the API
+                returns 404.
+        """
+        return self._transport.request(
+            Request(
+                path=f"{self._path}/export/{export_path(export)}/meta",
+                params={"variant": variant},
+            ),
+            ExportMeta,
+        )
+
+    def download_url(self, export: str | date, *, variant: ExportVariant | None = None) -> str:
         """Return a presigned URL for an export's parquet file.
 
         The URL is valid for 24 hours and grants access without an API key, so treat it
         as a secret. It suits tools that read parquet over HTTPS directly.
+
+        Args:
+            variant: "lite" selects the deduplicated file, as for ``export_meta``. An
+                export ID from a lite listing still needs it.
         """
-        return self._transport.download_url(f"{self._path}/export/{export_path(export)}")
+        return self._transport.download_url(
+            Request(path=f"{self._path}/export/{export_path(export)}", params={"variant": variant})
+        )
 
     @contextmanager
-    def download(self, export: str | date) -> Generator[httpx.Response, None, None]:
+    def download(
+        self, export: str | date, *, variant: ExportVariant | None = None
+    ) -> Generator[httpx.Response, None, None]:
         """Download an export's parquet file and yield the streaming httpx response.
 
         Read the body with ``response.iter_bytes()``; it closes when the ``with`` block
         exits. The API key is sent only to the Synthient API, never to the storage host,
         and errors never include the presigned URL. Compare the SHA-256 of the file with
-        ``Export.checksum`` to verify it.
+        ``Export.checksum`` to verify it. ``variant`` works as for ``download_url``.
 
         Raises:
             APIError: If the API or the storage host returns an error status. A daily
@@ -432,7 +511,106 @@ class Feed(Generic[ModelT]):
             httpx.HTTPError: While the body is read, such as ``httpx.ReadTimeout``. Body
                 reads are plain httpx and are not wrapped.
         """
-        response = self._transport.open_download(self.download_url(export))
+        response = self._transport.open_download(self.download_url(export, variant=variant))
+        try:
+            yield response
+        finally:
+            response.close()
+
+
+class Dataset:
+    """A Synthient dataset: daily exports without a stream. Access datasets through a
+    client, such as ``client.geolocation``.
+
+    Export IDs are a UTC day as "YYYY-MM-DD" or a ``date``, or "latest" for the newest
+    day. Datasets have no hourly exports, so hourly IDs raise ``ValueError``.
+    """
+
+    def __init__(self, transport: Transport, path: str) -> None:
+        self._transport = transport
+        self._path = path
+
+    def list_exports(
+        self,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        day: str | date | None = None,
+    ) -> ExportPage:
+        """Return one page of the dataset's exports, newest first.
+
+        Args:
+            limit: The page size, from 1 to 500. The API default is 100.
+            cursor: Continues a listing from a previous page's ``next_cursor``.
+            day: Lists only the export of this UTC day, a ``date`` or "YYYY-MM-DD".
+        """
+        return self._transport.request(
+            list_exports_request(self._path, limit=limit, cursor=cursor, day=day), ExportPage
+        )
+
+    def iter_exports(
+        self,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        day: str | date | None = None,
+    ) -> Iterator[Export]:
+        """Iterate over the dataset's exports, newest first, fetching pages lazily.
+
+        It takes the arguments of ``list_exports``.
+
+        Raises:
+            SynthientError: If the API repeats a cursor, after that page's exports.
+        """
+        return self._transport.iter_exports(
+            list_exports_request(self._path, limit=limit, cursor=cursor, day=day)
+        )
+
+    def export_volume(self, *, days: int | None = None) -> ExportVolume:
+        """Return the rows and bytes the dataset exported per UTC day, oldest first.
+
+        See ``Feed.export_volume``.
+        """
+        return self._transport.request(export_volume_request(self._path, days), ExportVolume)
+
+    def export_meta(self, export: str | date, *, format: ExportFormat | None = None) -> ExportMeta:
+        """Return the checksums, sizes, row count, and schema of an export's files.
+
+        Args:
+            format: The file that ``checksum`` and ``size`` describe. Geolocation has
+                "parquet" (the default), "csv", and "mmdb"; WHOIS has only "tar.gz".
+        """
+        return self._transport.request(
+            Request(
+                path=f"{self._path}/export/{daily_export_path(export)}/meta",
+                params={"format": format},
+            ),
+            ExportMeta,
+        )
+
+    def download_url(self, export: str | date, *, format: ExportFormat | None = None) -> str:
+        """Return a presigned URL for one of an export's files. See ``Feed.download_url``.
+
+        Args:
+            format: The file to fetch, as for ``export_meta``. A day without that file
+                returns 404.
+        """
+        return self._transport.download_url(
+            Request(
+                path=f"{self._path}/export/{daily_export_path(export)}", params={"format": format}
+            )
+        )
+
+    @contextmanager
+    def download(
+        self, export: str | date, *, format: ExportFormat | None = None
+    ) -> Generator[httpx.Response, None, None]:
+        """Download one of an export's files and yield the streaming httpx response.
+
+        The file comes back as served: csv as ``.csv.gz`` and WHOIS as ``.tar.gz``.
+        ``format`` works as for ``download_url``. See ``Feed.download``.
+        """
+        response = self._transport.open_download(self.download_url(export, format=format))
         try:
             yield response
         finally:

@@ -116,7 +116,7 @@ async def test_billed_transport_error_is_not_retried(sleeps: list[float]) -> Non
 
     async with async_client(handler) as client:
         with pytest.raises(APIConnectionError):
-            await client.lookup_domain("example.com")
+            await client.lookup_ip("8.8.8.8")
     assert sleeps == []
 
 
@@ -350,3 +350,71 @@ async def test_invalid_compression(status: int) -> None:
         assert str(caught.value) == "invalid response encoding"
     assert isinstance(caught.value.__cause__, httpx.DecodingError)
     assert body.closed
+
+
+async def test_feed_filters_and_volume() -> None:
+    urls: list[httpx.URL] = []
+    pages = {
+        None: json_response(200, {"stream": "proxies", "feeds": [EXPORT], "next_cursor": "p2"}),
+        "p2": json_response(200, {"stream": "proxies", "feeds": [EXPORT]}),
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        urls.append(request.url)
+        if request.url.path.endswith("/daily"):
+            return json_response(200, {"stream": "proxies", "days": []})
+        if request.url.host == "storage.test":
+            return httpx.Response(200, content=b"PAR1")
+        if request.url.path.endswith("/export"):
+            return pages[request.url.params.get("cursor")]
+        return redirect(PRESIGNED)
+
+    async with async_client(handler) as client:
+        exports = [e async for e in client.proxies.iter_exports(day="2026-11-17", variant="lite")]
+        volume = await client.helios_adb.export_volume(days=3)
+        async with client.proxies.download("2026-11-17/3", variant="lite") as response:
+            assert await response.aread() == b"PAR1"
+
+    assert len(exports) == 2
+    assert volume.days == []
+    assert [(url.path, dict(url.params)) for url in urls if url.host == "api.test"] == [
+        ("/api/v4/feeds/proxies/export", {"day": "2026-11-17", "variant": "lite"}),
+        ("/api/v4/feeds/proxies/export", {"day": "2026-11-17", "variant": "lite", "cursor": "p2"}),
+        ("/api/v4/feeds/helios/adb/export/daily", {"days": "3"}),
+        ("/api/v4/feeds/proxies/export/2026-11-17/3", {"variant": "lite"}),
+    ]
+
+
+async def test_dataset() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.host == "storage.test":
+            return httpx.Response(200, content=b"MMDB")
+        if request.url.path.endswith("/export"):
+            return json_response(200, {"stream": "geolocation", "feeds": [EXPORT]})
+        if request.url.path.endswith("/daily"):
+            return json_response(200, {"stream": "geolocation", "days": []})
+        return redirect(PRESIGNED)
+
+    async with async_client(handler) as client:
+        page = await client.geolocation.list_exports(limit=5, day="2026-11-17")
+        assert [e.id async for e in client.whois.iter_exports()] == [EXPORT["id"]]
+        await client.whois.export_volume()
+        assert await client.geolocation.download_url("latest", format="mmdb") == PRESIGNED
+        async with client.geolocation.download("2026-11-17", format="mmdb") as response:
+            assert await response.aread() == b"MMDB"
+        with pytest.raises(ValueError, match="only daily exports"):
+            await client.whois.export_meta("2026-11-17/3")
+
+    assert page.exports[0].id == EXPORT["id"]
+    api = [request for request in requests if request.url.host == "api.test"]
+    assert [(r.url.path, dict(r.url.params)) for r in api] == [
+        ("/api/v4/feeds/geolocation/export", {"limit": "5", "day": "2026-11-17"}),
+        ("/api/v4/feeds/whois/export", {}),
+        ("/api/v4/feeds/whois/export/daily", {}),
+        ("/api/v4/feeds/geolocation/export/latest", {"format": "mmdb"}),
+        ("/api/v4/feeds/geolocation/export/2026-11-17", {"format": "mmdb"}),
+    ]
+    assert "x-api-key" not in requests[-1].headers

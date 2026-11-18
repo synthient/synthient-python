@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncGenerator, AsyncIterator, Iterable
 from contextlib import aclosing, asynccontextmanager
+from dataclasses import replace
 from datetime import date
 from http import HTTPStatus
 from ipaddress import IPv4Address, IPv6Address
@@ -10,6 +11,7 @@ from typing import Generic, Self, cast
 import anyio
 import httpx
 from anyio import sleep
+from typing_extensions import deprecated
 
 from synthient._base import (
     DEFAULT_BASE_URL,
@@ -24,8 +26,10 @@ from synthient._base import (
     Request,
     ResponseHook,
     connection_error,
+    daily_export_path,
     decode,
     export_path,
+    export_volume_request,
     list_exports_request,
     lookup_domain_request,
     lookup_ip_request,
@@ -34,12 +38,16 @@ from synthient._base import (
 )
 from synthient._errors import APIError, SynthientError, api_error
 from synthient._models import (
+    DOMAIN_LOOKUP_REMOVED,
     Account,
     AnonymizerEvent,
-    DomainInfo,
+    DomainInfo,  # pyright: ignore[reportDeprecated]
     Export,
+    ExportFormat,
     ExportMeta,
     ExportPage,
+    ExportVariant,
+    ExportVolume,
     HealthResponse,
     HeliosADBEvent,
     HeliosDNSEvent,
@@ -164,8 +172,23 @@ class AsyncTransport(BaseTransport):
                 await _close_http(response)
         return response
 
-    async def download_url(self, path: str) -> str:
-        response = await self.send(Request(path=path))
+    async def iter_exports(self, request: Request) -> AsyncIterator[Export]:
+        """Yield the exports of a listing, fetching its pages lazily."""
+        params = dict(request.params or {})
+        seen = {params.get("cursor")}
+        while True:
+            page = await self.request(replace(request, params=params), ExportPage)
+            for export in page.exports:
+                yield export
+            if not page.next_cursor:
+                return
+            if page.next_cursor in seen:
+                raise SynthientError("export listing returned a repeated cursor")
+            seen.add(page.next_cursor)
+            params = {**params, "cursor": page.next_cursor}
+
+    async def download_url(self, request: Request) -> str:
+        response = await self.send(request)
         try:
             if response.status_code >= HTTPStatus.BAD_REQUEST:
                 raise await self.api_error(response)
@@ -227,6 +250,10 @@ class AsyncClient:
     """The Helios honeypot DNS tunnel destination feed."""
     helios_adb: AsyncFeed[HeliosADBEvent]
     """The Helios honeypot Android Debug Bridge command feed."""
+    geolocation: AsyncDataset
+    """The daily IP geolocation dataset."""
+    whois: AsyncDataset
+    """The daily WHOIS registry dataset."""
 
     def __init__(
         self,
@@ -252,10 +279,12 @@ class AsyncClient:
         self.anonymizers = AsyncFeed(self._transport, "/feeds/anonymizers", AnonymizerEvent)
         self.torrents = AsyncFeed(self._transport, "/feeds/torrents", TorrentEvent)
         self.ja4t = AsyncFeed(self._transport, "/feeds/ja4t", JA4TEvent)
-        self.helios_http = AsyncFeed(self._transport, "/feeds/helio/http", HeliosHTTPEvent)
-        self.helios_https = AsyncFeed(self._transport, "/feeds/helio/https", HeliosHTTPSEvent)
-        self.helios_dns = AsyncFeed(self._transport, "/feeds/helio/dns", HeliosDNSEvent)
-        self.helios_adb = AsyncFeed(self._transport, "/feeds/helio/adb", HeliosADBEvent)
+        self.helios_http = AsyncFeed(self._transport, "/feeds/helios/http", HeliosHTTPEvent)
+        self.helios_https = AsyncFeed(self._transport, "/feeds/helios/https", HeliosHTTPSEvent)
+        self.helios_dns = AsyncFeed(self._transport, "/feeds/helios/dns", HeliosDNSEvent)
+        self.helios_adb = AsyncFeed(self._transport, "/feeds/helios/adb", HeliosADBEvent)
+        self.geolocation = AsyncDataset(self._transport, "/feeds/geolocation")
+        self.whois = AsyncDataset(self._transport, "/feeds/whois")
 
     async def aclose(self) -> None:
         """Close the connection pool, unless it belongs to ``http_client``.
@@ -293,9 +322,13 @@ class AsyncClient:
         batch = await self._transport.request(lookup_ips_request(addresses), IPBatchResponse)
         return batch.results
 
-    async def lookup_domain(self, domain: str, *, limit: int | None = None) -> DomainInfo:
+    @deprecated(DOMAIN_LOOKUP_REMOVED)
+    async def lookup_domain(self, domain: str, *, limit: int | None = None) -> DomainInfo:  # pyright: ignore[reportDeprecated]
         """Return the honeypot traffic observed for a domain. See ``Client.lookup_domain``."""
-        return await self._transport.request(lookup_domain_request(domain, limit), DomainInfo)
+        return await self._transport.request(
+            lookup_domain_request(domain, limit),
+            DomainInfo,  # pyright: ignore[reportDeprecated]
+        )
 
 
 class AsyncFeed(Generic[ModelT]):
@@ -337,46 +370,149 @@ class AsyncFeed(Generic[ModelT]):
             yield decode(last, self._event)
 
     async def list_exports(
-        self, *, limit: int | None = None, cursor: str | None = None
+        self,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        day: str | date | None = None,
+        variant: ExportVariant | None = None,
     ) -> ExportPage:
         """Return one page of the feed's exports, newest first. See ``Feed.list_exports``."""
         return await self._transport.request(
-            list_exports_request(self._path, limit, cursor), ExportPage
+            list_exports_request(self._path, limit=limit, cursor=cursor, day=day, variant=variant),
+            ExportPage,
         )
 
-    async def iter_exports(
-        self, *, limit: int | None = None, cursor: str | None = None
+    def iter_exports(
+        self,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        day: str | date | None = None,
+        variant: ExportVariant | None = None,
     ) -> AsyncIterator[Export]:
         """Iterate over the feed's exports, newest first. See ``Feed.iter_exports``."""
-        seen = {cursor}
-        while True:
-            page = await self.list_exports(limit=limit, cursor=cursor)
-            for export in page.exports:
-                yield export
-            if not page.next_cursor:
-                return
-            if page.next_cursor in seen:
-                raise SynthientError("export listing returned a repeated cursor")
-            seen.add(page.next_cursor)
-            cursor = page.next_cursor
-
-    async def export_meta(self, export: str | date) -> ExportMeta:
-        """Return the checksum, size, row count, and parquet schema of an export."""
-        return await self._transport.request(
-            Request(path=f"{self._path}/export/{export_path(export)}/meta"), ExportMeta
+        return self._transport.iter_exports(
+            list_exports_request(self._path, limit=limit, cursor=cursor, day=day, variant=variant)
         )
 
-    async def download_url(self, export: str | date) -> str:
+    async def export_volume(self, *, days: int | None = None) -> ExportVolume:
+        """Return the rows and bytes the feed exported per UTC day. See ``Feed.export_volume``."""
+        return await self._transport.request(export_volume_request(self._path, days), ExportVolume)
+
+    async def export_meta(
+        self, export: str | date, *, variant: ExportVariant | None = None
+    ) -> ExportMeta:
+        """Return the checksum, size, row count, and parquet schema of an export.
+
+        See ``Feed.export_meta``.
+        """
+        return await self._transport.request(
+            Request(
+                path=f"{self._path}/export/{export_path(export)}/meta",
+                params={"variant": variant},
+            ),
+            ExportMeta,
+        )
+
+    async def download_url(
+        self, export: str | date, *, variant: ExportVariant | None = None
+    ) -> str:
         """Return a presigned URL for an export's parquet file. See ``Feed.download_url``."""
-        return await self._transport.download_url(f"{self._path}/export/{export_path(export)}")
+        return await self._transport.download_url(
+            Request(path=f"{self._path}/export/{export_path(export)}", params={"variant": variant})
+        )
 
     @asynccontextmanager
-    async def download(self, export: str | date) -> AsyncGenerator[httpx.Response, None]:
+    async def download(
+        self, export: str | date, *, variant: ExportVariant | None = None
+    ) -> AsyncGenerator[httpx.Response, None]:
         """Download an export's parquet file and yield the streaming httpx response.
 
         Read the body with ``response.aiter_bytes()``. See ``Feed.download``.
         """
-        response = await self._transport.open_download(await self.download_url(export))
+        response = await self._transport.open_download(
+            await self.download_url(export, variant=variant)
+        )
+        try:
+            yield response
+        finally:
+            await _close_http(response)
+
+
+class AsyncDataset:
+    """The async counterpart of ``Dataset``. Access datasets through an ``AsyncClient``."""
+
+    def __init__(self, transport: AsyncTransport, path: str) -> None:
+        self._transport = transport
+        self._path = path
+
+    async def list_exports(
+        self,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        day: str | date | None = None,
+    ) -> ExportPage:
+        """Return one page of the dataset's exports, newest first. See
+        ``Dataset.list_exports``.
+        """
+        return await self._transport.request(
+            list_exports_request(self._path, limit=limit, cursor=cursor, day=day), ExportPage
+        )
+
+    def iter_exports(
+        self,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        day: str | date | None = None,
+    ) -> AsyncIterator[Export]:
+        """Iterate over the dataset's exports, newest first. See ``Dataset.iter_exports``."""
+        return self._transport.iter_exports(
+            list_exports_request(self._path, limit=limit, cursor=cursor, day=day)
+        )
+
+    async def export_volume(self, *, days: int | None = None) -> ExportVolume:
+        """Return the rows and bytes the dataset exported per UTC day. See
+        ``Feed.export_volume``.
+        """
+        return await self._transport.request(export_volume_request(self._path, days), ExportVolume)
+
+    async def export_meta(
+        self, export: str | date, *, format: ExportFormat | None = None
+    ) -> ExportMeta:
+        """Return the checksums, sizes, row count, and schema of an export's files.
+
+        See ``Dataset.export_meta``.
+        """
+        return await self._transport.request(
+            Request(
+                path=f"{self._path}/export/{daily_export_path(export)}/meta",
+                params={"format": format},
+            ),
+            ExportMeta,
+        )
+
+    async def download_url(self, export: str | date, *, format: ExportFormat | None = None) -> str:
+        """Return a presigned URL for one of an export's files. See ``Dataset.download_url``."""
+        return await self._transport.download_url(
+            Request(
+                path=f"{self._path}/export/{daily_export_path(export)}", params={"format": format}
+            )
+        )
+
+    @asynccontextmanager
+    async def download(
+        self, export: str | date, *, format: ExportFormat | None = None
+    ) -> AsyncGenerator[httpx.Response, None]:
+        """Download one of an export's files and yield the streaming httpx response.
+
+        Read the body with ``response.aiter_bytes()``. See ``Dataset.download``.
+        """
+        response = await self._transport.open_download(
+            await self.download_url(export, format=format)
+        )
         try:
             yield response
         finally:
